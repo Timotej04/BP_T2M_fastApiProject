@@ -27,10 +27,14 @@ function App() {
 
       const data = await response.json();
 
-      // React Flow potrebuje pri každom node pozíciu, inak ho nezobrazí [web:114][web:174]
+      // prevedenie ProcessModel -> formát React Flow
       const apiNodes = (data.nodes || []).map((node, index) => ({
         id: node.id,
-        data: { label: node.label },
+        data: {
+          label: node.actor
+            ? `${node.label} (${node.actor})`
+            : node.label,
+        },
         position: { x: 100, y: index * 100 }, // jednoduché rozloženie pod seba
       }));
 
