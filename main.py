@@ -6,6 +6,8 @@ from typing import Optional, List
 
 app = FastAPI()
 
+print(">>> Nacitavam main.py")
+
 # CORS – pre vývoj povolíme všetko, nech to nezavadzia
 app.add_middleware(
     CORSMiddleware,
@@ -53,3 +55,10 @@ def generate_model(input: TextInput) -> ProcessModel:
     ]
 
     return ProcessModel(nodes=nodes, edges=edges)
+@app.post("/save-model", response_model=ProcessModel)
+def save_model(model: ProcessModel) -> ProcessModel:
+    print("Dostal som model so", len(model.nodes), "uzlami a", len(model.edges), "hranami.")
+    return model
+
+for route in app.routes:
+    print("ROUTE:", route.path, route.methods)
