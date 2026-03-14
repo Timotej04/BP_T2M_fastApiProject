@@ -15,6 +15,19 @@ const makeLabel = (baseLabel, actor, showActors) => {
   return baseLabel;
 };
 
+// Volanie backendu – AI generovanie diagramu z textu
+async function generateDiagramFromText(description) {
+  const response = await fetch('http://127.0.0.1:8000/generate-model', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ description }),
+  });
+  if (!response.ok) {
+    throw new Error('AI API zlyhalo');
+  }
+  return response.json(); // ProcessModel { nodes, edges }
+}
+
 function App() {
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
@@ -23,7 +36,9 @@ function App() {
   const [selectedEdgeId, setSelectedEdgeId] = useState(null);
   const [nextId, setNextId] = useState(1);
   const [showActors, setShowActors] = useState(true);
-  const [exportJson, setExportJson] = useState(''); // tu si zobrazíme JSON
+  const [exportJson, setExportJson] = useState('');
+  const [promptText, setPromptText] = useState('');
+  const [showJsonPanel, setShowJsonPanel] = useState(false); // NOVÉ
 
   const onConnect = useCallback(
     (params) => setEdges((eds) => addEdge(params, eds)),
@@ -44,15 +59,12 @@ function App() {
     setSelectedNodeId(null);
   };
 
+  // Generovanie modelu z textu (prompt z inputu hore)
   const loadModel = async () => {
     try {
-      const response = await fetch('http://127.0.0.1:8000/generate-model', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ description: 'test' }),
-      });
-
-      const data = await response.json();
+      const data = await generateDiagramFromText(
+        promptText || 'Vygeneruj jednoduchý business proces',
+      );
 
       const apiNodes = (data.nodes || []).map((node, index) => {
         const baseLabel = node.label;
@@ -82,8 +94,10 @@ function App() {
       setSelectedEdgeId(null);
       setNextId(1);
       setExportJson('');
+      setShowJsonPanel(false);
     } catch (err) {
       console.error('Chyba pri načítaní modelu:', err);
+      alert('Generovanie modelu zlyhalo, pozri konzolu.');
     }
   };
 
@@ -135,7 +149,7 @@ function App() {
     if (!selectedNodeId) return;
 
     const newActor = window.prompt('Nový actor (kto vykonáva činnosť):');
-    if (newActor === null) return; // Cancel
+    if (newActor === null) return;
 
     setNodes((nds) =>
       nds.map((n) =>
@@ -196,7 +210,7 @@ function App() {
     });
   };
 
-  // ---- EXPORT DO ProcessModel JSON ----
+  // Export do ProcessModel JSON
   const buildProcessModel = () => {
     const modelNodes = nodes.map((n) => ({
       id: n.id,
@@ -219,6 +233,7 @@ function App() {
     const processModel = buildProcessModel();
     const json = JSON.stringify(processModel, null, 2);
     setExportJson(json);
+    setShowJsonPanel(true); // po exporte rovno rozbal JSON panel
   };
 
   const saveModelToBackend = async () => {
@@ -241,6 +256,7 @@ function App() {
 
   return (
     <div style={{ width: '100vw', height: '100vh' }}>
+      {/* Toolbar */}
       <div
         style={{
           position: 'absolute',
@@ -248,28 +264,53 @@ function App() {
           left: 10,
           top: 10,
           display: 'flex',
+          flexDirection: 'column',
           gap: '8px',
+          background: 'rgba(255,255,255,0.9)',
+          padding: '12px',
+          borderRadius: '8px',
         }}
       >
-        <button onClick={loadModel}>Načítať model z backendu</button>
-        <button onClick={addNode}>Pridať uzol</button>
-        <button onClick={renameSelected} disabled={!selectedNodeId}>
-          Premenovať uzol
-        </button>
-        <button onClick={changeActorSelected} disabled={!selectedNodeId}>
-          Zmeniť actora
-        </button>
-        <button onClick={deleteSelectedNode} disabled={!selectedNodeId}>
-          Zmazať uzol
-        </button>
-        <button onClick={deleteSelectedEdge} disabled={!selectedEdgeId}>
-          Zmazať hranu
-        </button>
-        <button onClick={toggleActors}>
-          {showActors ? 'Skryť actorov' : 'Zobraziť actorov'}
-        </button>
-        <button onClick={exportModelToJson}>Export JSON</button>
-        <button onClick={saveModelToBackend}>Odoslať na backend</button>
+        <div>
+          <input
+            type="text"
+            placeholder="Popíš proces (prompt pre AI)"
+            value={promptText}
+            onChange={(e) => setPromptText(e.target.value)}
+            style={{
+              minWidth: '350px',
+              padding: '6px',
+              border: '1px solid #ccc',
+              borderRadius: '4px',
+              marginRight: '8px',
+            }}
+          />
+          <button onClick={loadModel}>🧠 Vygenerovať model z textu</button>
+        </div>
+
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          <button onClick={addNode}>➕ Pridať uzol</button>
+          <button onClick={renameSelected} disabled={!selectedNodeId}>
+            ✏️ Premenovať uzol
+          </button>
+          <button onClick={changeActorSelected} disabled={!selectedNodeId}>
+            👤 Zmeniť actora
+          </button>
+          <button onClick={deleteSelectedNode} disabled={!selectedNodeId}>
+            🗑️ Zmazať uzol
+          </button>
+          <button onClick={deleteSelectedEdge} disabled={!selectedEdgeId}>
+            🗑️ Zmazať hranu
+          </button>
+          <button onClick={toggleActors}>
+            {showActors ? '👥 Skryť actorov' : '👥 Zobraziť actorov'}
+          </button>
+          <button onClick={exportModelToJson}>📄 Export JSON</button>
+          <button onClick={saveModelToBackend}>💾 Odoslať na backend</button>
+          <button onClick={() => setShowJsonPanel((v) => !v)}>
+            {showJsonPanel ? '⬇️ Skryť JSON panel' : '⬆️ Zobraziť JSON panel'}
+          </button>
+        </div>
       </div>
 
       <ReactFlow
@@ -286,14 +327,14 @@ function App() {
         <Background />
       </ReactFlow>
 
-      {/* Panel s JSON exportom dolu */}
+      {/* Collapsible JSON panel – kliknutím sa zväčší/zmenší */}
       <div
         style={{
           position: 'absolute',
           left: 10,
           right: 10,
           bottom: 10,
-          maxHeight: '35vh',
+          maxHeight: exportJson && showJsonPanel ? '35vh' : '40px',
           background: '#1e1e1e',
           color: '#eee',
           padding: '8px',
@@ -301,11 +342,23 @@ function App() {
           fontFamily: 'monospace',
           fontSize: '12px',
           borderRadius: '4px',
+          transition: 'max-height 0.25s ease',
+          cursor: 'pointer',
         }}
+        onClick={() => setShowJsonPanel((v) => !v)}
       >
-        {exportJson
-          ? <pre>{exportJson}</pre>
-          : <span>Tu sa po kliknutí na „Export JSON“ zobrazí ProcessModel.</span>}
+        {exportJson && showJsonPanel ? (
+          <pre>{exportJson}</pre>
+        ) : exportJson ? (
+          <span>
+            📄 JSON export (klikni na panel na rozbalenie) [{nodes.length} uzlov]
+          </span>
+        ) : (
+          <span>
+            📄 Tu sa po kliknutí na „Export JSON“ zobrazí ProcessModel (panel môžeš
+            kedykoľvek rozbaliť/schovať klikom).
+          </span>
+        )}
       </div>
     </div>
   );
