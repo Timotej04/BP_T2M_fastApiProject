@@ -1,28 +1,20 @@
-import { useCallback, useState, useEffect } from 'react';
+import { useCallback, useState } from 'react';
 import ReactFlow, {
   Background,
   useNodesState,
   useEdgesState,
   addEdge,
   ConnectionLineType,
+  Position
 } from 'reactflow';
 import 'reactflow/dist/style.css';
+import dagre from 'dagre'; // NOVÉ: Import knižnice na layoutovanie
 
-// Zoznam jemných pastelových farieb pre rôznych aktérov (text na nich ostane čierny)
 const PASTEL_COLORS = [
-  '#fdfd96', // jemná žltá
-  '#ffb7b2', // jemná červená/lososová
-  '#c1e1c1', // jemná zelená
-  '#b5ead7', // mäta
-  '#c7ceea', // jemná modrá
-  '#e2f0cb', // pastelová tyrkysová
-  '#ffdac1', // broskyňová
-  '#f4c2c2', // marhuľová
-  '#e6e6fa', // levanduľová
-  '#ffd1dc', // svetlo ružová
+  '#fdfd96', '#ffb7b2', '#c1e1c1', '#b5ead7', '#c7ceea',
+  '#e2f0cb', '#ffdac1', '#f4c2c2', '#e6e6fa', '#ffd1dc',
 ];
 
-// Funkcia na vytvorenie labelu uzla (rovnako ako predtým)
 const makeLabel = (baseLabel, actor, showActors) => {
   if (actor && showActors) {
     return `${baseLabel} (${actor})`;
@@ -30,17 +22,13 @@ const makeLabel = (baseLabel, actor, showActors) => {
   return baseLabel;
 };
 
-// Funkcia na prepočítanie farieb podľa aktuálnych actorov v sieti
-// Prejde všetky uzly, zozbiera unikátnych actorov a pridelí im farby.
-// Prázdni actori alebo null/undefined dostanú bielu farbu.
 const applyActorColors = (nodes) => {
   const actorColorMap = {};
   let colorIndex = 0;
 
   return nodes.map((node) => {
-    const actor = node.data.actor ? node.data.actor.trim() : '';
+    const actor = node.data?.actor ? node.data.actor.trim() : '';
 
-    // Ak nemá actora, farba je biela
     if (!actor) {
       return {
         ...node,
@@ -48,26 +36,71 @@ const applyActorColors = (nodes) => {
       };
     }
 
-    // Ak actor ešte nemá farbu, priradíme mu ďalšiu zo zoznamu
     if (!actorColorMap[actor]) {
       actorColorMap[actor] = PASTEL_COLORS[colorIndex % PASTEL_COLORS.length];
       colorIndex++;
     }
 
-    // Aplikujeme priradenú farbu
     return {
       ...node,
       style: {
         ...node.style,
         backgroundColor: actorColorMap[actor],
-        color: '#000000', // Text bude vždy čierny, aby bol čitateľný na pastelovej
-        border: '1px solid #777', // Zvýraznenie okraja, keďže farby sú jemné
+        color: '#000000',
+        border: '1px solid #777',
       },
     };
   });
 };
 
-// Volanie backendu – odosiela aj min a max počet uzlov
+// ==========================================
+// NOVÉ: Funkcia na automatický layout (DAGRE)
+// ==========================================
+const dagreGraph = new dagre.graphlib.Graph();
+dagreGraph.setDefaultEdgeLabel(() => ({}));
+
+// direction = 'LR' (Left to Right) - smer zľava doprava
+const getLayoutedElements = (nodes, edges, direction = 'LR') => {
+  const isHorizontal = direction === 'LR';
+  dagreGraph.setGraph({ rankdir: direction });
+
+  nodes.forEach((node) => {
+    // Definujeme štandardnú veľkosť uzla pre výpočet algoritmu
+    dagreGraph.setNode(node.id, { width: 150, height: 50 });
+  });
+
+  edges.forEach((edge) => {
+    dagreGraph.setEdge(edge.source, edge.target);
+  });
+
+  // Necháme Dagre vypočítať polohy
+  dagre.layout(dagreGraph);
+
+  const newNodes = nodes.map((node) => {
+    const nodeWithPosition = dagreGraph.node(node.id);
+
+    // Nastavenie portov (kam sa pripájajú hrany)
+    // Keďže ideme zľava doprava, source je vpravo, target je vľavo
+    const targetPosition = isHorizontal ? Position.Left : Position.Top;
+    const sourcePosition = isHorizontal ? Position.Right : Position.Bottom;
+
+    // Musíme odčítať polovicu šírky a výšky, aby bol uzol centrovaný na súradnici
+    return {
+      ...node,
+      targetPosition,
+      sourcePosition,
+      position: {
+        x: nodeWithPosition.x - 75, // posun o polovicu definovanej šírky
+        y: nodeWithPosition.y - 25, // posun o polovicu definovanej výšky
+      },
+    };
+  });
+
+  return { nodes: newNodes, edges };
+};
+
+// ==========================================
+
 async function generateDiagramFromText(description, minNodes, maxNodes) {
   const response = await fetch('http://127.0.0.1:8000/generate-model', {
     method: 'POST',
@@ -78,9 +111,7 @@ async function generateDiagramFromText(description, minNodes, maxNodes) {
       max_nodes: parseInt(maxNodes, 10)
     }),
   });
-  if (!response.ok) {
-    throw new Error('AI API zlyhalo');
-  }
+  if (!response.ok) throw new Error('AI API zlyhalo');
   return response.json();
 }
 
@@ -96,14 +127,16 @@ function App() {
   const [promptText, setPromptText] = useState('');
   const [showJsonPanel, setShowJsonPanel] = useState(false);
 
-  // Stavy pre riadenie hĺbky procesov
   const [minNodes, setMinNodes] = useState(2);
   const [maxNodes, setMaxNodes] = useState(6);
 
-  const onConnect = useCallback(
-    (params) => setEdges((eds) => addEdge(params, eds)),
+    const onConnect = useCallback(
+    (params) => setEdges((eds) =>
+      addEdge({ ...params, type: 'smoothstep' }, eds)
+    ),
     [setEdges],
   );
+
 
   const onSelectionChange = useCallback(({ nodes }) => {
     if (nodes && nodes.length > 0) {
@@ -119,7 +152,6 @@ function App() {
     setSelectedNodeId(null);
   };
 
-  // Generovanie modelu z textu
   const loadModel = async () => {
     try {
       const data = await generateDiagramFromText(
@@ -128,7 +160,8 @@ function App() {
         maxNodes
       );
 
-      let apiNodes = (data.nodes || []).map((node, index) => {
+      // 1. Zostavíme základné uzly a hrany (bez polohy, tú urobí Dagre)
+      let initialNodes = (data.nodes || []).map((node) => {
         const baseLabel = node.label;
         const actor = node.actor || '';
         return {
@@ -139,22 +172,28 @@ function App() {
             actor,
             type: node.type || 'task',
           },
-          position: { x: 100, y: index * 100 },
+          // Dočasná nulová pozícia, hneď ju prepíše layout
+          position: { x: 0, y: 0 },
         };
       });
 
-      // Aplikujeme dynamické farby na načítané uzly z AI
-      apiNodes = applyActorColors(apiNodes);
-
-      const apiEdges = (data.edges || []).map((edge) => ({
+      let initialEdges = (data.edges || []).map((edge) => ({
         id: edge.id,
         source: edge.source,
         target: edge.target,
         label: edge.label || null,
+        type: 'smoothstep' // Pekné zahnuté hrany
       }));
 
-      setNodes(apiNodes);
-      setEdges(apiEdges);
+      // 2. Oživíme to farbami
+      initialNodes = applyActorColors(initialNodes);
+
+      // 3. Aplikujeme Dagre Layout zľava doprava (LR)
+      const layouted = getLayoutedElements(initialNodes, initialEdges, 'LR');
+
+      setNodes(layouted.nodes);
+      setEdges(layouted.edges);
+
       setSelectedNodeId(null);
       setSelectedEdgeId(null);
       setNextId(1);
@@ -166,6 +205,7 @@ function App() {
     }
   };
 
+  // Pre ručné pridanie uzla používateľom (tu layout neprepočítavame automaticky, aby sme mu nerozbili, čo si naklikal)
   const addNode = () => {
     const id = `new-${nextId}`;
     const baseLabel = `Nový krok ${nextId}`;
@@ -183,10 +223,11 @@ function App() {
             actor,
             type: 'task',
           },
-          position: { x: 300, y: nds.length * 100 },
+          position: { x: 100, y: 100 }, // Hodí ho vľavo hore, používateľ si ho presunie
+          sourcePosition: Position.Right,
+          targetPosition: Position.Left,
         },
       ];
-      // Hneď po pridaní prepočítame farby (aj keď nový je bez actora, bude biely)
       return applyActorColors(newNodes);
     });
   };
@@ -209,7 +250,6 @@ function App() {
             }
           : n,
       );
-      // Názov nemení actora, ale pre istotu aplikujeme farby, aby sme nestratili štýl
       return applyActorColors(updatedNodes);
     });
   };
@@ -217,7 +257,7 @@ function App() {
   const changeActorSelected = () => {
     if (!selectedNodeId) return;
     const newActor = window.prompt('Nový actor (kto vykonáva činnosť):');
-    if (newActor === null) return; // používateľ dal Cancel
+    if (newActor === null) return;
 
     setNodes((nds) => {
       const updatedNodes = nds.map((n) =>
@@ -226,13 +266,12 @@ function App() {
               ...n,
               data: {
                 ...n.data,
-                actor: newActor, // Tu sa zmení actor
+                actor: newActor,
                 label: makeLabel(n.data.baseLabel || n.data.label, newActor, showActors),
               },
             }
           : n,
       );
-      // DÔLEŽITÉ: Po zmene actora musíme prepočítať farby celej siete
       return applyActorColors(updatedNodes);
     });
   };
@@ -265,12 +304,18 @@ function App() {
             },
           };
         });
-        // Zachováme farby aj pri prepínaní viditeľnosti roly
         return applyActorColors(toggledNodes);
       });
       return next;
     });
   };
+
+  // Tlačidlo na manuálne zarovnanie grafu (ak používateľ robil bordel)
+  const onLayout = useCallback(() => {
+    const layouted = getLayoutedElements(nodes, edges, 'LR');
+    setNodes([...layouted.nodes]);
+    setEdges([...layouted.edges]);
+  }, [nodes, edges]);
 
   const buildProcessModel = () => {
     const modelNodes = nodes.map((n) => ({
@@ -312,7 +357,6 @@ function App() {
   return (
     <div style={{ width: '100vw', height: '100vh', position: 'relative' }}>
 
-      {/* Hlavný ovládací panel */}
       <div
         style={{
           position: 'absolute',
@@ -381,6 +425,7 @@ function App() {
           <button onClick={toggleActors}>
             {showActors ? '👥 Skryť roly' : '👥 Zobraziť roly'}
           </button>
+          <button onClick={onLayout} style={{ background: '#555', color: '#fff' }}>📐 Automaticky zarovnať</button>
           <button onClick={exportModelToJson}>📄 Export JSON</button>
           <button onClick={saveModelToBackend}>💾 Uložiť</button>
         </div>
@@ -394,7 +439,7 @@ function App() {
         onConnect={onConnect}
         onSelectionChange={onSelectionChange}
         onEdgeClick={onEdgeClick}
-        connectionLineType={ConnectionLineType.SmoothStep}
+        connectionLineType={ConnectionLineType.SmoothStep} // Toto zabezpečí pekné lomené čiary zľava doprava
         fitView
       >
         <Background />
