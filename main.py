@@ -53,13 +53,6 @@ class TextInput(BaseModel):
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
-GROQ_MODEL = "llama-3.1-8b-instant"  # kvalitný a free
-
-
-# --------- Groq LLM konfigurácia ---------
-
-GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
-GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 # ZMENA: Silnejší model, oveľa lepší na zložitú logiku a udržanie JSONu
 GROQ_MODEL = "llama-3.3-70b-versatile"
 
