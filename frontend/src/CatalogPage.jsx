@@ -109,7 +109,7 @@ function CatalogPage({ username, onLoadModel, onClose, onLogout }) {
     return () => clearTimeout(timer);
   }, [search, tab, fetchCatalog]);
 
-  const loadProcess = async (id) => {
+    const loadProcess = async (id) => {
     try {
       const resp = await fetch(`${API}/catalog/${id}`, { headers: getAuthHeaders() });
       if (!resp.ok) {
@@ -126,8 +126,10 @@ function CatalogPage({ username, onLoadModel, onClose, onLogout }) {
       const rawEdges = data.model_json.edges.map((e) => ({
         id: e.id, source: e.source, target: e.target, label: e.label || null, type: 'smoothstep',
       }));
-      const { nodes: laid, edges: laidEdges } = buildSwimLaneLayout(rawNodes, rawEdges);
-      onLoadModel(laid, laidEdges, data.prompt);
+
+      // ZMENA: Už nevoláme buildSwimLaneLayout tu.
+      // Posielame do hlavnej appky len surové uzly (rawNodes a rawEdges)
+      onLoadModel(rawNodes, rawEdges, data.prompt);
       onClose();
     } catch (err) {
       alert(err.message);
