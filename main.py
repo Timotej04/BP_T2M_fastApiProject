@@ -37,7 +37,9 @@ PREDEFINED_CATEGORIES = [
 
 # ─── BEZPEČNOSŤ ───────────────────────────────────────────────
 
-SECRET_KEY = os.getenv("JWT_SECRET_KEY", "super-tajny-vyvojarsky-kluc-12345")
+SECRET_KEY = os.getenv("JWT_SECRET_KEY")
+if not SECRET_KEY:
+    raise RuntimeError("❌ JWT_SECRET_KEY nie je nastavený v .env!")
 ALGORITHM = "HS256"
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")

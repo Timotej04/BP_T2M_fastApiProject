@@ -1,4 +1,4 @@
-import { useCallback, useState, useEffect } from 'react';
+import { useCallback, useState, useEffect, useRef } from 'react';
 import ReactFlow, {
   Background,
   useNodesState,
@@ -65,8 +65,43 @@ const Icons = {
   Save: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>,
   Folder: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>,
   Text: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="4 7 4 4 20 4 20 7"></polyline><line x1="9" y1="20" x2="15" y2="20"></line><line x1="12" y1="4" x2="12" y2="20"></line></svg>,
-  Download: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+  Download: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>,
+  Undo: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 14 4 9 9 4"></polyline><path d="M20 20v-7a4 4 0 0 0-4-4H4"></path></svg>,
+  Redo: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 14 20 9 15 4"></polyline><path d="M4 20v-7a4 4 0 0 1 4-4h12"></path></svg>
 };
+
+
+// ── AppModal – nahradzuje window.prompt / confirm / alert ────────
+function AppModal({ config, onClose }) {
+  const [value, setValue] = useState(config.defaultValue || '');
+  const inputRef = useRef(null);
+  useEffect(() => { if (config.type === 'prompt' && inputRef.current) inputRef.current.focus(); }, [config.type]);
+  if (!config) return null;
+  const onKey = (e) => {
+    if (e.key === 'Enter' && config.type !== 'confirm') onClose(value);
+    if (e.key === 'Escape') onClose(null);
+  };
+  const ov={position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',zIndex:9999,display:'flex',alignItems:'center',justifyContent:'center'};
+  const bx={background:'#fff',borderRadius:'12px',padding:'24px 28px',minWidth:'320px',maxWidth:'420px',width:'90%',boxShadow:'0 20px 60px rgba(0,0,0,0.3)',display:'flex',flexDirection:'column',gap:'16px'};
+  const bp={padding:'8px 20px',background:'#1e1b4b',color:'#fff',border:'none',borderRadius:'8px',cursor:'pointer',fontSize:'14px',fontWeight:600};
+  const bs={padding:'8px 20px',background:'#f1f5f9',color:'#475569',border:'1px solid #e2e8f0',borderRadius:'8px',cursor:'pointer',fontSize:'14px'};
+  const bd={padding:'8px 20px',background:'#ef4444',color:'#fff',border:'none',borderRadius:'8px',cursor:'pointer',fontSize:'14px',fontWeight:600};
+  const inp={width:'100%',padding:'8px 12px',border:'1px solid #cbd5e1',borderRadius:'8px',fontSize:'14px',outline:'none',boxSizing:'border-box',fontFamily:'inherit'};
+  return (
+    <div style={ov} onClick={e=>{if(e.target===e.currentTarget)onClose(null);}}>
+      <div style={bx} onKeyDown={onKey}>
+        {config.title   && <p style={{margin:0,fontSize:'16px',fontWeight:700,color:'#1e293b'}}>{config.title}</p>}
+        {config.message && <p style={{margin:0,fontSize:'14px',color:'#475569',lineHeight:1.5}}>{config.message}</p>}
+        {config.type==='prompt' && <input ref={inputRef} style={inp} value={value} onChange={e=>setValue(e.target.value)} placeholder={config.placeholder||''} />}
+        <div style={{display:'flex',gap:'8px',justifyContent:'flex-end'}}>
+          {config.type==='alert'   && <button style={bp} onClick={()=>onClose(true)}>OK</button>}
+          {config.type==='prompt'  && (<><button style={bs} onClick={()=>onClose(null)}>Zrušiť</button><button style={bp} onClick={()=>onClose(value)}>Potvrdiť</button></>)}
+          {config.type==='confirm' && (<><button style={bs} onClick={()=>onClose(false)}>{config.cancelLabel||'Nie'}</button><button style={config.danger?bd:bp} onClick={()=>onClose(true)}>{config.confirmLabel||'Áno'}</button></>)}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // ── VLASTNÝ KOMPONENT PRE UZOL ─────────────────────────────
 const TaskNode = ({ data, selected }) => {
@@ -163,7 +198,47 @@ function App() {
   const [username, setUsername] = useState(localStorage.getItem('auth_username') || null);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [pendingAction, setPendingAction] = useState(null);
-  const [selectedCategory, setSelectedCategory] = useState('Iné');   // ← NOVÉ
+  const [selectedCategory, setSelectedCategory] = useState('Iné');
+
+  // ─ Modal ───────────────────────────────────────────────────────────────
+  const [modalConfig, setModalConfig] = useState(null);
+  const modalResolveRef = useRef(null);
+  const showModal = (cfg) => new Promise(res => { modalResolveRef.current = res; setModalConfig(cfg); });
+  const handleModalClose = (v) => { setModalConfig(null); if (modalResolveRef.current) { modalResolveRef.current(v); modalResolveRef.current = null; } };
+  const modalAlert   = (msg, title = 'Upozornenie') => showModal({ type: 'alert', title, message: msg });
+  const modalPrompt  = (title, placeholder = '', defaultValue = '') => showModal({ type: 'prompt', title, placeholder, defaultValue });
+  const modalConfirm = (msg, title = 'Potvrdení', confirmLabel = 'Áno', cancelLabel = 'Nie', danger = false) =>
+    showModal({ type: 'confirm', title, message: msg, confirmLabel, cancelLabel, danger });
+
+  // ─ História Undo/Redo ──────────────────────────────────────────────
+  const histRef = useRef([]);
+  const histIdxRef = useRef(-1);
+  const saveHistory = useCallback((ns, es) => {
+    histRef.current = histRef.current.slice(0, histIdxRef.current + 1);
+    histRef.current.push({ nodes: ns, edges: es });
+    if (histRef.current.length > 50) histRef.current.shift();
+    histIdxRef.current = histRef.current.length - 1;
+  }, []);
+  const undo = useCallback(() => {
+    if (histIdxRef.current <= 0) return;
+    histIdxRef.current -= 1;
+    const s = histRef.current[histIdxRef.current];
+    setNodes(s.nodes); setEdges(s.edges);
+  }, [setNodes, setEdges]);
+  const redo = useCallback(() => {
+    if (histIdxRef.current >= histRef.current.length - 1) return;
+    histIdxRef.current += 1;
+    const s = histRef.current[histIdxRef.current];
+    setNodes(s.nodes); setEdges(s.edges);
+  }, [setNodes, setEdges]);
+  useEffect(() => {
+    const h = (e) => {
+      if ((e.ctrlKey||e.metaKey) && e.key==='z' && !e.shiftKey) { e.preventDefault(); undo(); }
+      if ((e.ctrlKey||e.metaKey) && (e.key==='y'||(e.key==='z'&&e.shiftKey))) { e.preventDefault(); redo(); }
+    };
+    window.addEventListener('keydown', h);
+    return () => window.removeEventListener('keydown', h);
+  }, [undo, redo]);
 
   const taskNodes = nodes.filter((n) => n.type !== 'swimlane');
 
@@ -178,7 +253,7 @@ function App() {
   };
 
   // ── KĽÚČOVÁ OPRAVA: čítame edges PRED zavolaním setEdges ───
-  const onConnect = useCallback((params) => {
+  const onConnect = useCallback(async (params) => {
     const currentSourceEdges = edges.filter(e => e.source === params.source);
     const currentCount = currentSourceEdges.length;
 
@@ -186,14 +261,20 @@ function App() {
     const firstEdgeLabelUpdates = {};
 
     if (currentCount === 1) {
-      newEdgeLabel = window.prompt('Tento krok sa mení na Rozhodnutie.\nZadaj podmienku pre túto NOVÚ cestu (napr. Áno):') ?? 'Možnosť 2';
+      const r2 = await modalPrompt('Podmienka pre NOVÚ cestu (napr. Áno):', 'Áno', 'Áno');
+      if (r2 === null) return;
+      newEdgeLabel = r2.trim() || 'Možnosť 2';
       const firstEdge = currentSourceEdges[0];
       if (!firstEdge.label || firstEdge.label.trim() === '') {
-        const fl = window.prompt('Zadaj podmienku pre PRVÚ (pôvodnú) cestu (napr. Nie):') ?? 'Možnosť 1';
+        const r1 = await modalPrompt('Podmienka pre PRVU cestu (napr. Nie):', 'Nie', 'Nie');
+        if (r1 === null) return;
+        firstEdgeLabelUpdates[firstEdge.id] = r1.trim() || 'Možnosť 1';
         firstEdgeLabelUpdates[firstEdge.id] = fl;
       }
     } else if (currentCount > 1) {
-      newEdgeLabel = window.prompt(`Zadaj podmienku pre túto novú cestu:`) ?? `Možnosť ${currentCount + 1}`;
+      const rn = await modalPrompt('Podmienka pre novú cestu:', `Možnosť ${currentCount + 1}`, `Možnosť ${currentCount + 1}`);
+      if (rn === null) return;
+      newEdgeLabel = rn.trim() || `Možnosť ${currentCount + 1}`;
     }
 
     setEdges((eds) => {
@@ -287,7 +368,7 @@ function App() {
     try {
       const data = await generateDiagramFromText(promptText || 'Vygeneruj jednoduchý business proces', minNodes, maxNodes);
       if (data.nodes.some(n => n.id === "start" && n.label === "Chyba AI")) {
-        alert(`Chyba AI:\n\n${data.nodes.find(n => n.id === "end")?.label}`);
+        await modalAlert(data.nodes.find(n => n.id === 'end')?.label || 'Chyba AI', 'Chyba AI');
         setIsLoading(false); return;
       }
       const rawEdges = (data.edges || []).map((edge) => ({ id: edge.id, source: edge.source, target: edge.target, label: edge.label || null, ...edgeOptions }));
@@ -302,9 +383,11 @@ function App() {
 
       const { nodes: laid, edges: laidEdges } = buildSwimLaneLayout(rawNodes, rawEdges);
       setNodes(laid); setEdges(laidEdges);
+      histRef.current = []; histIdxRef.current = -1;
+      saveHistory(laid, laidEdges);
       setSelectedNodeId(null); setSelectedEdgeId(null); setNextId(1);
     } catch (err) {
-      alert(`Generovanie zlyhalo: ${err.message}`);
+      await modalAlert(`Generovanie zlyhalo: ${err.message}`, 'Chyba');
     } finally { setIsLoading(false); }
   };
 
@@ -313,9 +396,10 @@ function App() {
   const onLoginSuccess = (user) => { setUsername(user); setShowAuthModal(false); if (pendingAction) { pendingAction(); setPendingAction(null); } };
 
   const executeSaveToCatalog = async () => {
-    if (taskNodes.length === 0) { alert('Nie je čo uložiť.'); return; }
-    const title = window.prompt('Názov diagramu:'); if (!title || !title.trim()) return;
-    const isPublic = window.confirm('Verejný diagram? (OK = Áno, Zrušiť = Súkromný)');
+    if (taskNodes.length === 0) { await modalAlert('Nie je čo uložiť.', 'Prázdny diagram'); return; }
+    const title = await modalPrompt('Názov diagramu:', 'napr. Schvaľovanie faktúry');
+    if (!title || !title.trim()) return;
+    const isPublic = await modalConfirm('Chceš diagram zverejniť pre ostatných používateľov?', 'Viditeľnosť diagramu', 'Áno, zverejniť', 'Nie, súkromný');
     const processModel = {
       nodes: taskNodes.map((n) => ({ id: n.id, type: n.data.nodeType || 'task', label: n.data.baseLabel || n.data.label, actor: n.data.actor || null, isDecision: n.data.isDecision || false })),
       edges: edges.map((e) => ({ id: e.id, source: e.source, target: e.target, label: e.label || null })),
@@ -335,57 +419,32 @@ function App() {
           category: selectedCategory,      // ← NOVÉ
         }),
       });
-      if (resp.status === 401) { handleLogout(); alert('Vypršalo prihlásenie.'); return; }
+      if (resp.status === 401) { handleLogout(); await modalAlert('Prihlásenie vypršalo. Prihlás sa znova.', 'Relácia vypršala'); return; }
       if (!resp.ok) throw new Error('Ukladanie zlyhalo');
-      alert(`✅ Uložené ako „${title.trim()}" · kategória: ${selectedCategory}`);
-    } catch (err) { alert('Ukladanie zlyhalo.'); }
+      await modalAlert(`Diagram „${title.trim()}“ bol úspešne uložený.`, '✅ Uložené');
+    } catch (err) { await modalAlert('Ukladanie zlyhalo. Skús to znova.', 'Chyba'); }
   };
 
   const saveToCatalog = () => requireAuth(executeSaveToCatalog);
   const openCatalog = () => requireAuth(() => setView('catalog'));
 
-  // ─── EXPORT CELÉHO DIAGRAMU ───────────────────────────────
+  // ─ Export diagramu ako obrázok ────────────────────────────────────
   const handleDownload = (format = 'png') => {
     const viewport = document.querySelector('.react-flow__viewport');
-    if (!viewport) { alert('Diagram nie je k dispozícii.'); return; }
-
-    // Používame `nodes` priamo zo state — nepotrebujeme useReactFlow hook
-    const taskNodes = nodes.filter(n => n.type === 'task');
-    if (taskNodes.length === 0) { alert('Diagram je prázdny.'); return; }
-
+    if (!viewport) { modalAlert('Diagram nie je k dispozícii.'); return; }
+    const allNodes = nodes.filter(n => n.type !== 'swimlane');
+    if (allNodes.length === 0) { modalAlert('Diagram je prázdny.'); return; }
     const PADDING = 60;
-    const bounds = getRectOfNodes(nodes); // všetky uzly vrátane swimlane
-    const imageWidth  = Math.round(bounds.width  + PADDING * 2);
-    const imageHeight = Math.round(bounds.height + PADDING * 2);
-
-    const [tx, ty, scale] = getTransformForBounds(
-      bounds, imageWidth, imageHeight, 0.1, 2, 0.05
-    );
-
-    const exportFn = format === 'jpg' ? toJpeg : toPng;
-
-    exportFn(viewport, {
-      backgroundColor: '#f0f4f8',
-      width:  imageWidth,
-      height: imageHeight,
-      pixelRatio: 2,
-      style: {
-        width:           imageWidth,
-        height:          imageHeight,
-        transform:       `translate(${tx}px, ${ty}px) scale(${scale})`,
-        transformOrigin: 'top left',
-      },
-    })
-      .then(dataUrl => {
-        const a = document.createElement('a');
-        a.href = dataUrl;
-        a.download = `diagram.${format}`;
-        a.click();
-      })
-      .catch(err => {
-        console.error('Export zlyhal:', err);
-        alert('Export zlyhal. Skontroluj konzolu.');
-      });
+    const bounds = getRectOfNodes(nodes);
+    const imgW = Math.round(bounds.width  + PADDING * 2);
+    const imgH = Math.round(bounds.height + PADDING * 2);
+    const [tx, ty, sc] = getTransformForBounds(bounds, imgW, imgH, 0.1, 2, 0.05);
+    const fn = format === 'jpg' ? toJpeg : toPng;
+    fn(viewport, {
+      backgroundColor: '#f0f4f8', width: imgW, height: imgH, pixelRatio: 2,
+      style: { width: imgW, height: imgH, transform: `translate(${tx}px, ${ty}px) scale(${sc})`, transformOrigin: 'top left' },
+    }).then(url => { const a = document.createElement('a'); a.href = url; a.download = `diagram.${format}`; a.click(); })
+      .catch(() => modalAlert('Export zlyhal. Skontroluj konzolu.', 'Chyba'));
   };
 
   const addNode = () => {
@@ -393,28 +452,33 @@ function App() {
     const newNode = { id, type: 'task', data: { label: makeLabel(`Krok ${nextId}`, '', showActors), baseLabel: `Krok ${nextId}`, actor: '', nodeType: 'task', isDecision: false }, position: { x: 0, y: 0 } };
     const { nodes: laid, edges: laidEdges } = buildSwimLaneLayout([...stripLaneProps(nodes), newNode], edges);
     setNodes(laid); setEdges(laidEdges);
+    saveHistory(laid, laidEdges);
   };
 
-  const renameSelectedNode = () => {
+  const renameSelectedNode = async () => {
     if (!selectedNodeId) return;
-    const newLabel = window.prompt('Nový názov kroku:'); if (!newLabel) return;
+    const cur = taskNodes.find(n => n.id === selectedNodeId);
+    const newLabel = await modalPrompt('Nový názov kroku:', '', cur?.data?.baseLabel || '');
+    if (!newLabel || !newLabel.trim()) return;
     const updatedTasks = taskNodes.map((n) => n.id === selectedNodeId ? { ...n, data: { ...n.data, baseLabel: newLabel, label: makeLabel(newLabel, n.data.actor || '', showActors) } } : n);
     const { nodes: laid, edges: laidEdges } = buildSwimLaneLayout(updatedTasks, edges);
     setNodes(laid); setEdges(laidEdges);
+    saveHistory(laid, laidEdges);
   };
 
-  const renameSelectedEdge = () => {
+  const renameSelectedEdge = async () => {
     if (!selectedEdgeId) return;
     const edge = edges.find((e) => e.id === selectedEdgeId);
-    const newLabel = window.prompt('Zadaj podmienku na hrane:', edge?.label || '');
+    const newLabel = await modalPrompt('Podmienka na hrane:', '', edge?.label || '');
     if (newLabel !== null) {
       setEdges((eds) => eds.map((e) => e.id === selectedEdgeId ? { ...e, label: newLabel || undefined } : e));
     }
   };
 
-  const changeActorSelected = () => {
+  const changeActorSelected = async () => {
     if (!selectedNodeId) return;
-    const newActor = window.prompt('Nová rola:'); if (newActor === null) return;
+    const cur2 = taskNodes.find(n => n.id === selectedNodeId);
+    const newActor = await modalPrompt('Nová rola pre uzol:', '', cur2?.data?.actor || '');
     const updatedTasks = taskNodes.map((n) => n.id === selectedNodeId ? { ...n, data: { ...n.data, actor: newActor, label: makeLabel(n.data.baseLabel || n.data.label, newActor, showActors) } } : n);
     setLaneCustomWidth(null);
     const { nodes: laid, edges: laidEdges } = buildSwimLaneLayout(updatedTasks, edges);
@@ -473,6 +537,7 @@ function App() {
     setLaneCustomWidth(null);
     const { nodes: laid, edges: laidEdges } = buildSwimLaneLayout(stripLaneProps(nodes), edges);
     setNodes(laid); setEdges(laidEdges);
+    saveHistory(laid, laidEdges);
   }, [nodes, edges, buildSwimLaneLayout]);
 
   if (view === 'catalog') {
@@ -606,13 +671,21 @@ function App() {
               </select>
             </div>
 
+            <div style={{display:'flex',gap:'6px'}}>
+              <button onClick={undo} title="Späť (Ctrl+Z)" style={{flex:1,display:'flex',alignItems:'center',justifyContent:'center',gap:'5px',padding:'8px',background:'#334155',color:'#fff',border:'none',borderRadius:'8px',cursor:'pointer',fontSize:'12px',fontWeight:600}}>
+                <Icons.Undo /> Späť
+              </button>
+              <button onClick={redo} title="Vpred (Ctrl+Y)" style={{flex:1,display:'flex',alignItems:'center',justifyContent:'center',gap:'5px',padding:'8px',background:'#334155',color:'#fff',border:'none',borderRadius:'8px',cursor:'pointer',fontSize:'12px',fontWeight:600}}>
+                <Icons.Redo /> Vpred
+              </button>
+            </div>
             <SidebarButton icon={Icons.Save} label="Uložiť model" onClick={saveToCatalog} variant="success" fullWidth />
             <SidebarButton icon={Icons.Folder} label="Otvoriť archív" onClick={openCatalog} fullWidth />
-            <div style={{ display: 'flex', gap: '6px', marginTop: '4px' }}>
-              <button onClick={() => handleDownload('png')} title="Stiahnuť celý diagram ako PNG" style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', padding: '8px', background: '#312e81', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '12px', fontWeight: 600 }}>
+            <div style={{display:'flex',gap:'6px'}}>
+              <button onClick={()=>handleDownload('png')} title="Stiahnuť celý diagram ako PNG" style={{flex:1,display:'flex',alignItems:'center',justifyContent:'center',gap:'6px',padding:'8px',background:'#312e81',color:'#fff',border:'none',borderRadius:'8px',cursor:'pointer',fontSize:'12px',fontWeight:600}}>
                 <Icons.Download /> PNG
               </button>
-              <button onClick={() => handleDownload('jpg')} title="Stiahnuť celý diagram ako JPG" style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', padding: '8px', background: '#312e81', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '12px', fontWeight: 600 }}>
+              <button onClick={()=>handleDownload('jpg')} title="Stiahnuť celý diagram ako JPG" style={{flex:1,display:'flex',alignItems:'center',justifyContent:'center',gap:'6px',padding:'8px',background:'#312e81',color:'#fff',border:'none',borderRadius:'8px',cursor:'pointer',fontSize:'12px',fontWeight:600}}>
                 <Icons.Download /> JPG
               </button>
             </div>
@@ -632,6 +705,7 @@ function App() {
           <Background color="#94a3b8" variant="dots" gap={24} size={2} />
         </ReactFlow>
       </div>
+      {modalConfig && <AppModal config={modalConfig} onClose={handleModalClose} />}
     </div>
   );
 }
