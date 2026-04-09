@@ -3,7 +3,7 @@ from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Optional, List
 from contextlib import contextmanager
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 import os
 import json
@@ -17,7 +17,7 @@ load_dotenv()
 
 app = FastAPI()
 
-print(">>> Nacitavam main.py (so zabezpecenim)")
+print(">>> Nacitavam main.py (so zabezpecenim + kategoriami)")
 
 app.add_middleware(
     CORSMiddleware,
@@ -27,25 +27,28 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ─── KONFIGURÁCIA BEZPEČNOSTI (JWT & Heslá) ───────────────────
+# ─── KATEGÓRIE ────────────────────────────────────────────────
 
-# Dôležité: V produkcii musí byť SECRET_KEY silný a v .env súbore!
+PREDEFINED_CATEGORIES = [
+    "HR", "IT", "Financie", "Operácie", "Marketing",
+    "Zákaznícky servis", "Územné celky", "Šport",
+    "Školstvo", "Právo", "Hospodárstvo", "Iné",
+]
+
+# ─── BEZPEČNOSŤ ───────────────────────────────────────────────
+
 SECRET_KEY = os.getenv("JWT_SECRET_KEY", "super-tajny-vyvojarsky-kluc-12345")
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # Token platí 7 dní
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
+# ─── PYDANTIC MODELY ──────────────────────────────────────────
 
-# ─── PYDANTIC MODELY ─────────────────────────────────────────
-
-# Existujúce modely pre procesy
 class Node(BaseModel):
     id: str
     type: str
     label: str
     actor: Optional[str] = None
-
 
 class Edge(BaseModel):
     id: str
@@ -53,17 +56,14 @@ class Edge(BaseModel):
     target: str
     label: Optional[str] = None
 
-
 class ProcessModel(BaseModel):
     nodes: List[Node]
     edges: List[Edge]
-
 
 class TextInput(BaseModel):
     description: str
     min_nodes: Optional[int] = 2
     max_nodes: Optional[int] = 10
-
 
 class CatalogSaveRequest(BaseModel):
     title: str
@@ -72,36 +72,30 @@ class CatalogSaveRequest(BaseModel):
     max_nodes: int
     final_node_count: int
     model_json: dict
-    is_public: bool = False  # Príprava na verejný katalóg
+    is_public: bool = False
+    category: str = "Iné"
 
-
-# Nové modely pre Auth
 class UserRegister(BaseModel):
     username: str
     password: str
 
-
 class UserLogin(BaseModel):
     username: str
     password: str
-
 
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str
     username: str
 
-
 # ─── SQLITE SETUP ─────────────────────────────────────────────
 
 DB_PATH = "process_catalog.db"
-
 
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
-    # Tabuľka používateľov
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -111,7 +105,6 @@ def init_db():
         )
     """)
 
-    # Tabuľka procesov (upravená: nick nahradený user_id, pridané is_public)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS processes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -123,14 +116,22 @@ def init_db():
             final_node_count INTEGER NOT NULL,
             model_json TEXT NOT NULL,
             is_public BOOLEAN DEFAULT 0,
+            category TEXT DEFAULT 'Iné',
             created_at TEXT NOT NULL,
             FOREIGN KEY(user_id) REFERENCES users(id)
         )
     """)
+
+    try:
+        cursor.execute("ALTER TABLE processes ADD COLUMN category TEXT DEFAULT 'Iné'")
+        conn.commit()
+        print("✅ Migrácia: stĺpec 'category' pridaný")
+    except sqlite3.OperationalError:
+        pass
+
     conn.commit()
     conn.close()
-    print("✅ SQLite DB (s auth tabuľkami) inicializovaná")
-
+    print("✅ SQLite DB inicializovaná")
 
 @contextmanager
 def get_db():
@@ -141,30 +142,20 @@ def get_db():
     finally:
         conn.close()
 
-
-# ─── POMOCNÉ FUNKCIE PRE AUTH ─────────────────────────────────
+# ─── AUTH POMOCNÉ FUNKCIE ─────────────────────────────────────
 
 def verify_password(plain_password, hashed_password):
     return pwd_context.verify(plain_password, hashed_password)
 
-
 def get_password_hash(password):
     return pwd_context.hash(password)
 
-
 def create_access_token(data: dict):
     to_encode = data.copy()
-    # Generujeme token BEZ expiračnej doby - platí navždy kým sa neodhlási
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-    return encoded_jwt
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
-
-# Dependency pre zabezpečené endpointy
-# Zistí, či používateľ poslal platný token a vráti jeho user_id a username
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-
 security = HTTPBearer()
-
 
 def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
     token = credentials.credentials
@@ -182,16 +173,13 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
     except jwt.PyJWTError as e:
         print(f"Chyba dekódovania tokenu: {e}")
         raise credentials_exception
-
     return {"user_id": user_id, "username": username}
 
-
-# ─── GROQ LLM KONFIGURÁCIA & GENEROVANIE ──────────────────────
+# ─── GROQ ─────────────────────────────────────────────────────
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 GROQ_MODEL = "llama-3.3-70b-versatile"
-
 
 def generate_diagram_from_text(description: str, min_nodes: int, max_nodes: int) -> ProcessModel:
     print(f"🎯 PROMPT: {description[:50]}... | Uzlov: {min_nodes} - {max_nodes}")
@@ -207,11 +195,14 @@ Vytvor JSON model business procesu. Tvojou JEDINOU úlohou je vrátiť syntaktic
   "nodes": [
     {{"id": "start", "type": "startEvent", "label": "Začiatok procesu"}},
     {{"id": "t1", "type": "task", "label": "Názov úlohy", "actor": "Rola"}},
+    {{"id": "gw1", "type": "gateway", "label": "Rozhodnutie?"}},
     {{"id": "end", "type": "endEvent", "label": "Koniec procesu"}}
   ],
   "edges": [
     {{"id": "e1", "source": "start", "target": "t1"}},
-    {{"id": "e2", "source": "t1", "target": "end"}}
+    {{"id": "e2", "source": "t1", "target": "gw1"}},
+    {{"id": "e3", "source": "gw1", "target": "end", "label": "Áno"}},
+    {{"id": "e4", "source": "gw1", "target": "t1", "label": "Nie"}}
   ]
 }}
 
@@ -219,8 +210,10 @@ PRAVIDLÁ:
 1. MUSÍ to byť len JSON objekt.
 2. Proces má mať medzi 1 startEvent a 1 endEvent približne {min_nodes} až {max_nodes} uzlov typu "task" alebo "gateway".
 3. "actor" je voliteľný.
-4. Zachyť vetvenia.
-5. Posledný element v zoznamoch (nodes, edges) NESMIE mať za sebou čiarku!
+4. Každý uzol typu "gateway" MUSÍ mať aspoň 2 odchádzajúce hrany.
+5. KAŽDÁ hrana vychádzajúca z uzla typu "gateway" MUSÍ mať vyplnené pole "label" s konkrétnou podmienkou zodpovedajúcou kontextu procesu (napr. "Áno"/"Nie", "Schválené"/"Zamietnuté"). Nikdy nepoužívaj generické "Možnosť 1" / "Možnosť 2".
+6. Hrany medzi bežnými "task" uzlami label nepotrebujú.
+7. Posledný element v zoznamoch (nodes, edges) NESMIE mať za sebou čiarku!
 
 Zadanie procesu:
 {description}
@@ -229,10 +222,7 @@ Zadanie procesu:
     try:
         resp = requests.post(
             GROQ_URL,
-            headers={
-                "Authorization": f"Bearer {GROQ_API_KEY}",
-                "Content-Type": "application/json",
-            },
+            headers={"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"},
             json={
                 "model": GROQ_MODEL,
                 "messages": [
@@ -245,7 +235,6 @@ Zadanie procesu:
             },
             timeout=45,
         )
-
         resp.raise_for_status()
         data = resp.json()
 
@@ -264,7 +253,7 @@ Zadanie procesu:
 
         if content.startswith("```"):
             lines = content.split('\n')
-            if lines.startswith("```"):
+            if lines[0].startswith("```"):
                 lines = lines[1:]
             if lines and lines[-1].startswith("```"):
                 lines = lines[:-1]
@@ -282,8 +271,8 @@ Zadanie procesu:
                 raise e
 
         if isinstance(diagram, list):
-            if len(diagram) > 0 and isinstance(diagram, dict):
-                diagram = diagram
+            if len(diagram) > 0 and isinstance(diagram[0], dict):
+                diagram = diagram[0]
             else:
                 raise ValueError("AI vrátilo list namiesto JSON objektu")
 
@@ -293,12 +282,8 @@ Zadanie procesu:
         nodes = []
         node_ids = set()
         raw_nodes = diagram.get("nodes", [])
-
         if not isinstance(raw_nodes, list):
-            if isinstance(raw_nodes, dict):
-                raw_nodes = list(raw_nodes.values())
-            else:
-                raise ValueError(f"'nodes' nie je list ani dict: {type(raw_nodes)}")
+            raw_nodes = list(raw_nodes.values()) if isinstance(raw_nodes, dict) else []
 
         for n in raw_nodes:
             if not isinstance(n, dict): continue
@@ -313,21 +298,16 @@ Zadanie procesu:
 
         edges = []
         raw_edges = diagram.get("edges", [])
-
         if not isinstance(raw_edges, list):
-            if isinstance(raw_edges, dict):
-                raw_edges = list(raw_edges.values())
-            else:
-                raise ValueError(f"'edges' nie je list: {type(raw_edges)}")
+            raw_edges = list(raw_edges.values()) if isinstance(raw_edges, dict) else []
 
         for e in raw_edges:
             if not isinstance(e, dict): continue
             source = str(e.get("source", ""))
             target = str(e.get("target", ""))
             if source in node_ids and target in node_ids:
-                edge_id = str(e.get("id", f"edge_{len(edges)}"))
                 edges.append(Edge(
-                    id=edge_id,
+                    id=str(e.get("id", f"edge_{len(edges)}")),
                     source=source,
                     target=target,
                     label=e.get("label")
@@ -339,7 +319,6 @@ Zadanie procesu:
         print(f"💥 CHYBA: {exc}")
         return dummy_model(f"Chyba: {str(exc)[:40]}")
 
-
 def dummy_model(msg: str) -> ProcessModel:
     return ProcessModel(
         nodes=[
@@ -349,25 +328,29 @@ def dummy_model(msg: str) -> ProcessModel:
         edges=[Edge(id="e1", source="start", target="end")],
     )
 
-
 # ─── STARTUP ──────────────────────────────────────────────────
 
 @app.on_event("startup")
 def startup_event():
     init_db()
 
+# ─── ENDPOINTY ────────────────────────────────────────────────
 
-# ─── AUTH ENDPOINTY (Nové) ────────────────────────────────────
+@app.get("/categories")
+def get_categories():
+    return {"categories": PREDEFINED_CATEGORIES}
+
+@app.get("/")
+def read_root():
+    return {"message": "API beží"}
 
 @app.post("/register")
 def register_user(user: UserRegister):
     with get_db() as conn:
         cursor = conn.cursor()
-        # Zistíme, či používateľ už neexistuje
         cursor.execute("SELECT id FROM users WHERE username = ?", (user.username,))
         if cursor.fetchone():
             raise HTTPException(status_code=400, detail="Používateľské meno už existuje")
-
         hashed_pw = get_password_hash(user.password)
         cursor.execute(
             "INSERT INTO users (username, hashed_password, created_at) VALUES (?, ?, ?)",
@@ -376,118 +359,106 @@ def register_user(user: UserRegister):
         conn.commit()
         return {"success": True, "message": "Účet vytvorený. Môžeš sa prihlásiť."}
 
-
 @app.post("/login", response_model=TokenResponse)
 def login_user(user: UserLogin):
     with get_db() as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT id, username, hashed_password FROM users WHERE username = ?", (user.username,))
         row = cursor.fetchone()
-
         if not row or not verify_password(user.password, row["hashed_password"]):
             raise HTTPException(status_code=401, detail="Nesprávne meno alebo heslo")
-
         access_token = create_access_token(data={"sub": str(row["id"]), "username": row["username"]})
         return {"access_token": access_token, "token_type": "bearer", "username": row["username"]}
 
-
-# ─── ZÁKLADNÉ ENDPOINTY (Verejné) ─────────────────────────────
-
-@app.get("/")
-def read_root():
-    return {"message": "API beží"}
-
-
 @app.post("/generate-model", response_model=ProcessModel)
 def generate_model(input: TextInput) -> ProcessModel:
-    # Toto zostáva verejné, hostia môžu generovať diagramy
     return generate_diagram_from_text(input.description, input.min_nodes, input.max_nodes)
-
-
-# ─── KATALÓG ENDPOINTY (Zabezpečené) ──────────────────────────
 
 @app.post("/catalog", response_model=dict)
 def save_to_catalog(
         payload: CatalogSaveRequest,
-        current_user: dict = Depends(get_current_user)  # ← Vyžaduje sa Token!
+        current_user: dict = Depends(get_current_user)
 ):
-    """Uloží proces pod prihláseným používateľom"""
     user_id = current_user["user_id"]
+    category = payload.category if payload.category in PREDEFINED_CATEGORIES else "Iné"
 
     with get_db() as conn:
         cursor = conn.cursor()
         cursor.execute(
             """
             INSERT INTO processes
-                (user_id, title, prompt, min_nodes, max_nodes, final_node_count, model_json, is_public, created_at)
-            VALUES
-                (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (user_id, title, prompt, min_nodes, max_nodes, final_node_count,
+                 model_json, is_public, category, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                user_id,
-                payload.title,
-                payload.prompt,
-                payload.min_nodes,
-                payload.max_nodes,
-                payload.final_node_count,
-                json.dumps(payload.model_json),
-                payload.is_public,
+                user_id, payload.title, payload.prompt,
+                payload.min_nodes, payload.max_nodes, payload.final_node_count,
+                json.dumps(payload.model_json), payload.is_public, category,
                 datetime.now(timezone.utc).isoformat(),
             ),
         )
         conn.commit()
-        new_id = cursor.lastrowid
-        return {"id": new_id, "success": True}
-
+        return {"id": cursor.lastrowid, "success": True, "category": category}
 
 @app.get("/catalog", response_model=List[dict])
 def list_catalog(
         q: str = Query("", description="Fulltext hľadanie"),
-        current_user: dict = Depends(get_current_user)  # ← Vyžaduje sa Token!
+        category: str = Query("", description="Filter podľa kategórie"),
+        current_user: dict = Depends(get_current_user)
 ):
-    """Vráti len procesy aktuálne prihláseného používateľa"""
     user_id = current_user["user_id"]
 
     with get_db() as conn:
         cursor = conn.cursor()
+
+        conditions = ["user_id = ?"]
+        params: list = [user_id]
+
         if q:
             like = f"%{q}%"
-            cursor.execute(
-                """
-                SELECT id, title, prompt, min_nodes, max_nodes, final_node_count, is_public, created_at
-                FROM processes
-                WHERE user_id = ?
-                  AND (title LIKE ? OR prompt LIKE ? OR model_json LIKE ?)
-                ORDER BY id DESC
-                """,
-                (user_id, like, like, like),
-            )
-        else:
-            cursor.execute(
-                """
-                SELECT id, title, prompt, min_nodes, max_nodes, final_node_count, is_public, created_at
-                FROM processes
-                WHERE user_id = ?
-                ORDER BY id DESC
-                """,
-                (user_id,),
-            )
+            conditions.append("(title LIKE ? OR prompt LIKE ? OR model_json LIKE ?)")
+            params.extend([like, like, like])
+
+        if category and category not in ("", "Všetky"):
+            conditions.append("category = ?")
+            params.append(category)
+
+        where_clause = " AND ".join(conditions)
+        cursor.execute(
+            f"""
+            SELECT id, title, prompt, min_nodes, max_nodes, final_node_count,
+                   is_public, category, created_at, model_json
+            FROM processes
+            WHERE {where_clause}
+            ORDER BY id DESC
+            """,
+            params,
+        )
         rows = cursor.fetchall()
 
-        # Pridáme informáciu o vlastníkovi priamo do odpovede
-        result = [dict(row) for row in rows]
-        for r in result:
+        result = []
+        for row in rows:
+            r = dict(row)
             r["username"] = current_user["username"]
+            r["owner"] = current_user["username"]          # ← FIX: pridané owner pole
+            if not r.get("category"):
+                r["category"] = "Iné"
+            # ← FIX: parsujeme model_json zo stringu na dict
+            if isinstance(r.get("model_json"), str):
+                try:
+                    r["model_json"] = json.loads(r["model_json"])
+                except Exception:
+                    r["model_json"] = {"nodes": [], "edges": []}
+            result.append(r)
 
         return result
-
 
 @app.get("/catalog/{process_id}", response_model=dict)
 def get_process(
         process_id: int,
-        current_user: dict = Depends(get_current_user)  # ← Vyžaduje sa Token!
+        current_user: dict = Depends(get_current_user)
 ):
-    """Vráti detail procesu, ale len ak patrí používateľovi (alebo ak spravíme verejné)"""
     user_id = current_user["user_id"]
 
     with get_db() as conn:
@@ -498,22 +469,22 @@ def get_process(
         if not row:
             raise HTTPException(status_code=404, detail=f"Proces #{process_id} neexistuje")
 
-        # Bezpečnostná kontrola: môže to čítať?
         if row["user_id"] != user_id and not row["is_public"]:
             raise HTTPException(status_code=403, detail="Nemáš prístup k tomuto diagramu")
 
         result = dict(row)
         result["model_json"] = json.loads(result["model_json"])
-        result["username"] = current_user["username"]  # dopíšeme pre frontend
+        result["username"] = current_user["username"]
+        result["owner"] = current_user["username"]
+        if not result.get("category"):
+            result["category"] = "Iné"
         return result
-
 
 @app.delete("/catalog/{process_id}", response_model=dict)
 def delete_process(
         process_id: int,
-        current_user: dict = Depends(get_current_user)  # ← Vyžaduje sa Token!
+        current_user: dict = Depends(get_current_user)
 ):
-    """Zmaže proces z katalógu (len vlastný)"""
     user_id = current_user["user_id"]
 
     with get_db() as conn:
@@ -531,40 +502,53 @@ def delete_process(
         conn.commit()
         return {"success": True, "deleted_id": process_id}
 
-
 @app.get("/public-catalog", response_model=List[dict])
 def list_public_catalog(
         q: str = Query("", description="Fulltext hľadanie"),
+        category: str = Query("", description="Filter podľa kategórie"),
 ):
-    """Vráti VŠETKY procesy, ktoré sú označené ako verejné (od hocikoho)"""
     with get_db() as conn:
         cursor = conn.cursor()
 
-        # Oproti obyčajnému /catalog tu nepotrebujeme token a hľadáme všade kde is_public = 1
-        # Pripájame aj tabuľku users, aby sme vedeli, KTO to vytvoril (cudzí username)
-
-        query_base = """
-            SELECT p.id, p.title, p.prompt, p.min_nodes, p.max_nodes, 
-                   p.final_node_count, p.created_at, u.username
-            FROM processes p
-            JOIN users u ON p.user_id = u.id
-            WHERE p.is_public = 1
-        """
+        conditions = ["p.is_public = 1"]
+        params: list = []
 
         if q:
             like = f"%{q}%"
-            cursor.execute(
-                query_base + " AND (p.title LIKE ? OR p.prompt LIKE ? OR p.model_json LIKE ?) ORDER BY p.id DESC",
-                (like, like, like)
-            )
-        else:
-            cursor.execute(query_base + " ORDER BY p.id DESC")
+            conditions.append("(p.title LIKE ? OR p.prompt LIKE ? OR p.model_json LIKE ?)")
+            params.extend([like, like, like])
 
+        if category and category not in ("", "Všetky"):
+            conditions.append("p.category = ?")
+            params.append(category)
+
+        where_clause = " AND ".join(conditions)
+        cursor.execute(
+            f"""
+            SELECT p.id, p.title, p.prompt, p.min_nodes, p.max_nodes,
+                   p.final_node_count, p.created_at, p.category, p.model_json,
+                   u.username
+            FROM processes p
+            JOIN users u ON p.user_id = u.id
+            WHERE {where_clause}
+            ORDER BY p.id DESC
+            """,
+            params,
+        )
         rows = cursor.fetchall()
 
-        # Pripravíme výsledok, pole is_public dávame vždy na true, lebo ťaháme len verejné
-        result = [dict(row) for row in rows]
-        for r in result:
+        result = []
+        for row in rows:
+            r = dict(row)
             r["is_public"] = True
+            r["owner"] = r["username"]
+            if not r.get("category"):
+                r["category"] = "Iné"
+            if isinstance(r.get("model_json"), str):
+                try:
+                    r["model_json"] = json.loads(r["model_json"])
+                except Exception:
+                    r["model_json"] = {"nodes": [], "edges": []}
+            result.append(r)
 
         return result
