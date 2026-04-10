@@ -211,25 +211,48 @@ function App() {
     showModal({ type: 'confirm', title, message: msg, confirmLabel, cancelLabel, danger });
 
   // ─ História Undo/Redo ──────────────────────────────────────────────
-  const histRef = useRef([]);
-  const histIdxRef = useRef(-1);
+  const histRef = useRef([{ nodes: [], edges: [] }]);
+  const histIdxRef = useRef(0);
+
   const saveHistory = useCallback((ns, es) => {
+    // Funkcia na vyčistenie UI stavov (React Flow), ktoré nemajú ovplyvňovať krok vpred/vzad
+    const cleanNodes = (items) => items.map(({ selected, dragging, positionAbsolute, ...rest }) => rest);
+
+    if (histRef.current.length > 0 && histIdxRef.current >= 0) {
+      const current = histRef.current[histIdxRef.current];
+      // Ak sa diagram nezmenil (napr. len kliknutie na uzol), neukladáme to do histórie,
+      // čím zabránime strate "Redo" (krok vpred) po obyčajnom prekliku.
+      if (JSON.stringify(cleanNodes(current.nodes)) === JSON.stringify(cleanNodes(ns)) && 
+          JSON.stringify(current.edges) === JSON.stringify(es)) {
+        return;
+      }
+    }
+
     histRef.current = histRef.current.slice(0, histIdxRef.current + 1);
-    histRef.current.push({ nodes: ns, edges: es });
-    if (histRef.current.length > 50) histRef.current.shift();
+    histRef.current.push({
+      nodes: JSON.parse(JSON.stringify(ns)),
+      edges: JSON.parse(JSON.stringify(es)),
+    });
+    if (histRef.current.length > 50) {
+      histRef.current.shift();
+    }
     histIdxRef.current = histRef.current.length - 1;
   }, []);
+
   const undo = useCallback(() => {
     if (histIdxRef.current <= 0) return;
     histIdxRef.current -= 1;
     const s = histRef.current[histIdxRef.current];
-    setNodes(s.nodes); setEdges(s.edges);
+    setNodes(JSON.parse(JSON.stringify(s.nodes)));
+    setEdges(JSON.parse(JSON.stringify(s.edges)));
   }, [setNodes, setEdges]);
+
   const redo = useCallback(() => {
     if (histIdxRef.current >= histRef.current.length - 1) return;
     histIdxRef.current += 1;
     const s = histRef.current[histIdxRef.current];
-    setNodes(s.nodes); setEdges(s.edges);
+    setNodes(JSON.parse(JSON.stringify(s.nodes)));
+    setEdges(JSON.parse(JSON.stringify(s.edges)));
   }, [setNodes, setEdges]);
   useEffect(() => {
     const h = (e) => {
@@ -254,7 +277,7 @@ function App() {
 
   // ── KĽÚČOVÁ OPRAVA: čítame edges PRED zavolaním setEdges ───
   const onConnect = useCallback(async (params) => {
-    const currentSourceEdges = edges.filter(e => e.source === params.source);
+    const currentSourceEdges = edges.filter((e) => e.source === params.source);
     const currentCount = currentSourceEdges.length;
 
     let newEdgeLabel = null;
@@ -264,34 +287,47 @@ function App() {
       const r2 = await modalPrompt('Podmienka pre NOVÚ cestu (napr. Áno):', 'Áno', 'Áno');
       if (r2 === null) return;
       newEdgeLabel = r2.trim() || 'Možnosť 2';
+
       const firstEdge = currentSourceEdges[0];
       if (!firstEdge.label || firstEdge.label.trim() === '') {
-        const r1 = await modalPrompt('Podmienka pre PRVU cestu (napr. Nie):', 'Nie', 'Nie');
+        const r1 = await modalPrompt('Podmienka pre PRVÚ cestu (napr. Nie):', 'Nie', 'Nie');
         if (r1 === null) return;
         firstEdgeLabelUpdates[firstEdge.id] = r1.trim() || 'Možnosť 1';
-        firstEdgeLabelUpdates[firstEdge.id] = fl;
       }
     } else if (currentCount > 1) {
-      const rn = await modalPrompt('Podmienka pre novú cestu:', `Možnosť ${currentCount + 1}`, `Možnosť ${currentCount + 1}`);
+      const rn = await modalPrompt(
+        'Podmienka pre novú cestu:',
+        `Možnosť ${currentCount + 1}`,
+        `Možnosť ${currentCount + 1}`
+      );
       if (rn === null) return;
       newEdgeLabel = rn.trim() || `Možnosť ${currentCount + 1}`;
     }
 
-    setEdges((eds) => {
-      const updated = eds.map(e =>
-        firstEdgeLabelUpdates[e.id] ? { ...e, label: firstEdgeLabelUpdates[e.id] } : e
-      );
-      return addEdge({ ...params, ...edgeOptions, label: newEdgeLabel }, updated);
-    });
+    const updatedEdgesBase = edges.map((e) =>
+      firstEdgeLabelUpdates[e.id]
+        ? { ...e, label: firstEdgeLabelUpdates[e.id] }
+        : e
+    );
 
-    if (currentCount >= 1) {
-      setNodes((nds) =>
-        nds.map(n =>
-          n.id === params.source ? { ...n, data: { ...n.data, isDecision: true } } : n
-        )
-      );
-    }
-  }, [edges, setEdges, setNodes, edgeOptions]);
+    const nextEdges = addEdge(
+      { ...params, ...edgeOptions, label: newEdgeLabel },
+      updatedEdgesBase
+    );
+
+    const nextNodes =
+      currentCount >= 1
+        ? nodes.map((n) =>
+            n.id === params.source
+              ? { ...n, data: { ...n.data, isDecision: true } }
+              : n
+          )
+        : nodes;
+
+    setEdges(nextEdges);
+    setNodes(nextNodes);
+    saveHistory(nextNodes, nextEdges);
+  }, [edges, nodes, setEdges, setNodes, edgeOptions]);
 
   const onSelectionChange = useCallback(({ nodes: sel }) => {
     const nonLane = sel?.find((n) => n.type !== 'swimlane');
@@ -471,7 +507,11 @@ function App() {
     const edge = edges.find((e) => e.id === selectedEdgeId);
     const newLabel = await modalPrompt('Podmienka na hrane:', '', edge?.label || '');
     if (newLabel !== null) {
-      setEdges((eds) => eds.map((e) => e.id === selectedEdgeId ? { ...e, label: newLabel || undefined } : e));
+      const updatedEdges = edges.map((e) =>
+        e.id === selectedEdgeId ? { ...e, label: newLabel || undefined } : e
+      );
+      setEdges(updatedEdges);
+      saveHistory(nodes, updatedEdges);
     }
   };
 
@@ -508,20 +548,27 @@ function App() {
 
   const deleteSelectedEdge = () => {
     if (!selectedEdgeId) return;
-    const edgeToDelete = edges.find(e => e.id === selectedEdgeId);
+
+    const edgeToDelete = edges.find((e) => e.id === selectedEdgeId);
     const sourceNodeId = edgeToDelete?.source;
     const remainingEdges = edges.filter((e) => e.id !== selectedEdgeId);
 
+    let updatedNodes = nodes;
+
     if (sourceNodeId) {
-      const remainingOut = remainingEdges.filter(e => e.source === sourceNodeId).length;
+      const remainingOut = remainingEdges.filter((e) => e.source === sourceNodeId).length;
       if (remainingOut <= 1) {
-        setNodes((nds) => nds.map(n =>
-          n.id === sourceNodeId ? { ...n, data: { ...n.data, isDecision: false } } : n
-        ));
+        updatedNodes = nodes.map((n) =>
+          n.id === sourceNodeId
+            ? { ...n, data: { ...n.data, isDecision: false } }
+            : n
+        );
       }
     }
 
+    setNodes(updatedNodes);
     setEdges(remainingEdges);
+    saveHistory(updatedNodes, remainingEdges);
     setSelectedEdgeId(null);
   };
 
@@ -699,6 +746,7 @@ function App() {
         <ReactFlow
           nodes={nodes} edges={edges} nodeTypes={nodeTypes}
           onNodesChange={onNodesChange} onEdgesChange={onEdgesChange}
+          onNodeDragStop={() => saveHistory(nodes, edges)}
           onConnect={onConnect} onSelectionChange={onSelectionChange} onEdgeClick={onEdgeClick}
           connectionLineType={ConnectionLineType.SmoothStep} fitView defaultEdgeOptions={edgeOptions}
         >
