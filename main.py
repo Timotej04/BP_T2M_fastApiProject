@@ -51,6 +51,8 @@ class Node(BaseModel):
     type: str
     label: str
     actor: Optional[str] = None
+    duration_minutes: Optional[int] = None
+    cost_euros: Optional[int] = None
 
 class Edge(BaseModel):
     id: str
@@ -66,6 +68,7 @@ class TextInput(BaseModel):
     description: str
     min_nodes: Optional[int] = 2
     max_nodes: Optional[int] = 10
+    include_kpi: Optional[bool] = False
 
 class CatalogSaveRequest(BaseModel):
     title: str
@@ -183,11 +186,17 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 GROQ_MODEL = "llama-3.3-70b-versatile"
 
-def generate_diagram_from_text(description: str, min_nodes: int, max_nodes: int) -> ProcessModel:
+def generate_diagram_from_text(description: str, min_nodes: int, max_nodes: int, include_kpi: bool = False) -> ProcessModel:
     print(f"🎯 PROMPT: {description[:50]}... | Uzlov: {min_nodes} - {max_nodes}")
 
     if not GROQ_API_KEY or len(GROQ_API_KEY) < 10:
         return dummy_model("Nastav GROQ_API_KEY v .env")
+
+    kpi_instruction = ""
+    kpi_example = ""
+    if include_kpi:
+        kpi_instruction = "\n8. K uzlom typu 'task' (okrem startEvent a endEvent) PRIDAJ atribúty 'duration_minutes' (odhadovaný čas v minútach, celé číslo) a 'cost_euros' (odhadované náklady v eurách, celé číslo). Pri gateway a eventoch ich NEPRIDÁVAJ!"
+        kpi_example = ', "duration_minutes": 15, "cost_euros": 5'
 
     prompt = f"""
 Vytvor JSON model business procesu. Tvojou JEDINOU úlohou je vrátiť syntakticky správny a validný JSON a ABSOLÚTNE ŽIADEN INÝ TEXT.
@@ -196,7 +205,7 @@ Vytvor JSON model business procesu. Tvojou JEDINOU úlohou je vrátiť syntaktic
 {{
   "nodes": [
     {{"id": "start", "type": "startEvent", "label": "Začiatok procesu"}},
-    {{"id": "t1", "type": "task", "label": "Názov úlohy", "actor": "Rola"}},
+    {{"id": "t1", "type": "task", "label": "Názov úlohy", "actor": "Rola"{kpi_example}}},
     {{"id": "gw1", "type": "gateway", "label": "Rozhodnutie?"}},
     {{"id": "end", "type": "endEvent", "label": "Koniec procesu"}}
   ],
@@ -217,6 +226,7 @@ PRAVIDLÁ:
 6. Hrany medzi bežnými "task" uzlami label nepotrebujú.
 7. Posledný element v zoznamoch (nodes, edges) NESMIE mať za sebou čiarku!
 
+{kpi_instruction}
 Zadanie procesu:
 {description}
 """
@@ -294,7 +304,9 @@ Zadanie procesu:
                 id=node_id,
                 type=str(n.get("type", "task")),
                 label=str(n.get("label", "Neznáma úloha")),
-                actor=n.get("actor")
+                actor=n.get("actor"),
+                duration_minutes=n.get("duration_minutes"),
+                cost_euros=n.get("cost_euros")
             ))
             node_ids.add(node_id)
 
@@ -374,7 +386,7 @@ def login_user(user: UserLogin):
 
 @app.post("/generate-model", response_model=ProcessModel)
 def generate_model(input: TextInput) -> ProcessModel:
-    return generate_diagram_from_text(input.description, input.min_nodes, input.max_nodes)
+    return generate_diagram_from_text(input.description, input.min_nodes, input.max_nodes, input.include_kpi)
 
 @app.post("/catalog", response_model=dict)
 def save_to_catalog(
@@ -503,6 +515,114 @@ def delete_process(
         cursor.execute("DELETE FROM processes WHERE id = ?", (process_id,))
         conn.commit()
         return {"success": True, "deleted_id": process_id}
+
+
+# ─── AI COPILOT: Úprava existujúceho diagramu ─────────────────
+
+class EditModelRequest(BaseModel):
+    instruction: str
+    current_model: dict
+
+
+def edit_diagram_with_ai(instruction: str, current_model: dict) -> ProcessModel:
+    if not GROQ_API_KEY or len(GROQ_API_KEY) < 10:
+        return dummy_model("Nastav GROQ_API_KEY v .env")
+
+    current_json = json.dumps(current_model, ensure_ascii=False, indent=2)
+
+    prompt = f"""Mas existujuci JSON diagram business procesu. Pouzivatel chce urobit zmenu.
+Tvojou JEDINOU ulohou je vratit upraveny JSON a ABSOLUTNE ZIADEN INY TEXT.
+
+EXISTUJUCI DIAGRAM:
+{current_json}
+
+POZIADAVKA POUZIVATELA:
+{instruction}
+
+PRAVIDLA (MUSI STRIKTNE DODRZIA):
+1. Vrat KOMPLETNY JSON objekt v ROVNAKOM formate ako vstup (kluce: "nodes" a "edges").
+2. ZACHOVAJ vsetky povodne ID uzlov a hran, ktore sa NEMENIA.
+3. ZACHOVAJ vsetky povodne hodnoty: duration_minutes, cost_euros, actor - ak ich explicitne nemenies.
+4. Pridavaj/uprav/maz IBA to, co pouzivatel ziada.
+5. Nove uzly dostavaju ID s prefixom "n" (napr. nt1, nt2) a nove hrany "ne1", "ne2" atd.
+6. Kazdy gateway musi mat aspon 2 odchadzajuce hrany s vyplnenym label.
+7. Posledny element v zoznamoch NESMIE mat ciarku!
+8. Vrat LEN validny JSON bez akehokolvek textu pred alebo za nim.
+"""
+
+    try:
+        resp = requests.post(
+            GROQ_URL,
+            headers={"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"},
+            json={
+                "model": GROQ_MODEL,
+                "messages": [
+                    {"role": "system", "content": "You are a JSON editor. You output only valid JSON."},
+                    {"role": "user", "content": prompt}
+                ],
+                "max_tokens": 5000,
+                "temperature": 0.0,
+                "response_format": {"type": "json_object"}
+            },
+            timeout=45,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+
+        content = data["choices"][0]["message"]["content"].strip()
+        if content.startswith("```"):
+            lines = content.split('\n')
+            lines = lines[1:] if lines[0].startswith("```") else lines
+            lines = lines[:-1] if lines and lines[-1].startswith("```") else lines
+            content = '\n'.join(lines).strip()
+
+        diagram = json.loads(content)
+
+        # Zachovame povodne KPI data - ak AI zabudla, doplnime z original
+        original_nodes_map = {n["id"]: n for n in current_model.get("nodes", [])}
+
+        nodes = []
+        node_ids = set()
+        for n in diagram.get("nodes", []):
+            if not isinstance(n, dict):
+                continue
+            nid = str(n.get("id", f"node_{len(nodes)}"))
+            orig = original_nodes_map.get(nid, {})
+            nodes.append(Node(
+                id=nid,
+                type=str(n.get("type", "task")),
+                label=str(n.get("label", "Neznama uloha")),
+                actor=n.get("actor") or orig.get("actor"),
+                duration_minutes=n.get("duration_minutes") if n.get("duration_minutes") is not None else orig.get("duration_minutes"),
+                cost_euros=n.get("cost_euros") if n.get("cost_euros") is not None else orig.get("cost_euros"),
+            ))
+            node_ids.add(nid)
+
+        edges = []
+        for e in diagram.get("edges", []):
+            if not isinstance(e, dict):
+                continue
+            src = str(e.get("source", ""))
+            tgt = str(e.get("target", ""))
+            if src in node_ids and tgt in node_ids:
+                edges.append(Edge(
+                    id=str(e.get("id", f"edge_{len(edges)}")),
+                    source=src,
+                    target=tgt,
+                    label=e.get("label"),
+                ))
+
+        return ProcessModel(nodes=nodes, edges=edges)
+
+    except Exception as exc:
+        print(f"Copilot chyba: {exc}")
+        return dummy_model(f"Copilot chyba: {str(exc)[:40]}")
+
+
+@app.post("/edit-model", response_model=ProcessModel)
+def edit_model(input: EditModelRequest) -> ProcessModel:
+    return edit_diagram_with_ai(input.instruction, input.current_model)
+
 
 @app.get("/public-catalog", response_model=List[dict])
 def list_public_catalog(

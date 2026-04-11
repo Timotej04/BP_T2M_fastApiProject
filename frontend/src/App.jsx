@@ -67,7 +67,8 @@ const Icons = {
   Text: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="4 7 4 4 20 4 20 7"></polyline><line x1="9" y1="20" x2="15" y2="20"></line><line x1="12" y1="4" x2="12" y2="20"></line></svg>,
   Download: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>,
   Undo: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 14 4 9 9 4"></polyline><path d="M20 20v-7a4 4 0 0 0-4-4H4"></path></svg>,
-  Redo: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 14 20 9 15 4"></polyline><path d="M4 20v-7a4 4 0 0 1 4-4h12"></path></svg>
+  Redo: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 14 20 9 15 4"></polyline><path d="M4 20v-7a4 4 0 0 1 4-4h12"></path></svg>,
+  KPI: () => (<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>)
 };
 
 
@@ -106,29 +107,43 @@ function AppModal({ config, onClose }) {
 // ── VLASTNÝ KOMPONENT PRE UZOL ─────────────────────────────
 const TaskNode = ({ data, selected }) => {
   const isDecision = data.isDecision === true;
+  const isInvalid = data.isInvalid === true;
+  const strokeColor = selected ? COLORS.accent : (isInvalid ? COLORS.danger : (isDecision ? '#818cf8' : '#cbd5e1'));
+  const fillColor = isInvalid ? '#fef2f2' : (isDecision ? '#fdfeef' : '#ffffff');
+  const hasKpi = !isDecision && (data.durationMinutes || data.costEuros);
+  const nodeHeight = hasKpi ? NODE_HEIGHT + 22 : NODE_HEIGHT;
+
   return (
-    <div style={{ width: NODE_WIDTH, height: isDecision ? DECISION_HEIGHT : NODE_HEIGHT, position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: isDecision ? '10px 30px' : '10px' }}>
+    <div style={{ width: NODE_WIDTH, height: isDecision ? DECISION_HEIGHT : nodeHeight, position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: isDecision ? '10px 30px' : '6px 10px' }}>
       <Handle type="target" position={Position.Left} style={{ opacity: 0, width: 10, height: 10, left: isDecision ? 10 : -5 }} />
-      <div style={{ position: 'absolute', inset: 0, zIndex: -1, filter: selected ? 'drop-shadow(0 0 4px #6366f1)' : 'drop-shadow(0 2px 4px rgba(0,0,0,0.08))' }}>
+      <div style={{ position: 'absolute', inset: 0, zIndex: -1, filter: selected ? 'drop-shadow(0 0 4px #6366f1)' : (isInvalid ? 'drop-shadow(0 0 4px #ef4444)' : 'drop-shadow(0 2px 4px rgba(0,0,0,0.08))') }}>
         {isDecision ? (
           <svg width="100%" height="100%" viewBox={`0 0 ${NODE_WIDTH} ${DECISION_HEIGHT}`} preserveAspectRatio="none" style={{ position: 'absolute', inset: 0 }}>
-            <polygon points={`${NODE_WIDTH/2},2 ${NODE_WIDTH-2},${DECISION_HEIGHT/2} ${NODE_WIDTH/2},${DECISION_HEIGHT-2} 2,${DECISION_HEIGHT/2}`} fill="#fdfeef" stroke={selected ? COLORS.accent : '#818cf8'} strokeWidth="2" />
+            <polygon points={`${NODE_WIDTH/2},2 ${NODE_WIDTH-2},${DECISION_HEIGHT/2} ${NODE_WIDTH/2},${DECISION_HEIGHT-2} 2,${DECISION_HEIGHT/2}`} fill={fillColor} stroke={strokeColor} strokeWidth={isInvalid ? "3" : "2"} />
           </svg>
         ) : (
           <svg width="100%" height="100%" style={{ position: 'absolute', inset: 0 }}>
-            <rect x="1" y="1" width={NODE_WIDTH-2} height={NODE_HEIGHT-2} rx="8" fill="#ffffff" stroke={selected ? COLORS.accent : '#cbd5e1'} strokeWidth="2" />
+            <rect x="1" y="1" width={NODE_WIDTH-2} height={nodeHeight-2} rx="8" fill={fillColor} stroke={strokeColor} strokeWidth={isInvalid ? "3" : "2"} />
           </svg>
         )}
       </div>
-      <div style={{ fontSize: '12px', color: '#1e293b', fontWeight: isDecision ? '600' : '500', textAlign: 'center', zIndex: 1, whiteSpace: 'pre-wrap', lineHeight: 1.4 }}>
-        {data.label}
+      <div style={{ fontSize: '12px', color: isInvalid ? '#991b1b' : '#1e293b', fontWeight: isDecision ? '600' : '500', textAlign: 'center', zIndex: 1, whiteSpace: 'pre-wrap', lineHeight: 1.3, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', width: '100%' }}>
+        <span>{data.label}</span>
+        {hasKpi && (
+          <div style={{ display: 'flex', gap: '6px', fontSize: '10px', color: '#475569', background: 'rgba(241,245,249,0.95)', padding: '2px 7px', borderRadius: '4px', border: '1px solid #e2e8f0', lineHeight: 1.4, flexWrap: 'wrap', justifyContent: 'center' }}>
+            {data.durationMinutes ? <span title="Odhadovany cas">{Number.isInteger(data.durationMinutes) ? data.durationMinutes : data.durationMinutes.toFixed(1)} min</span> : null}
+            {data.costEuros ? <span title="Odhadovane naklady">{Number.isInteger(data.costEuros) ? data.costEuros : data.costEuros.toFixed(2)} EUR</span> : null}
+          </div>
+        )}
       </div>
+      {isInvalid && (
+        <div title={data.validationMsg} style={{ position: 'absolute', top: -8, right: -8, background: COLORS.danger, color: 'white', borderRadius: '50%', width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px', fontWeight: 'bold', boxShadow: '0 2px 4px rgba(0,0,0,0.2)', cursor: 'help' }}>!</div>
+      )}
       <Handle type="source" position={Position.Right} style={{ opacity: 0, width: 10, height: 10, right: isDecision ? 10 : -5 }} />
     </div>
   );
 };
 
-// ── SWIMLANE KOMPONENT ─────────────────────────────────────
 const SwimlaneNode = ({ data }) => {
   const isEven = data.index % 2 === 0;
   const expandWidth = (e) => { e.stopPropagation(); data.onWidthChange(data.currentWidth + 150); };
@@ -152,10 +167,10 @@ const nodeTypes = { swimlane: SwimlaneNode, task: TaskNode };
 const makeLabel = (baseLabel, actor, showActors) => actor && showActors ? `${baseLabel} \n(${actor})` : baseLabel;
 const stripLaneProps = (nodes) => nodes.filter((n) => n.type !== 'swimlane').map((n) => ({ ...n, parentNode: undefined, extent: undefined, position: { x: 0, y: 0 } }));
 
-async function generateDiagramFromText(description, minNodes, maxNodes) {
+async function generateDiagramFromText(description, minNodes, maxNodes, includeKpi) {
   const response = await fetch(`${API}/generate-model`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ description, min_nodes: parseInt(minNodes, 10), max_nodes: parseInt(maxNodes, 10) }),
+    body: JSON.stringify({ description, min_nodes: parseInt(minNodes, 10), max_nodes: parseInt(maxNodes, 10), include_kpi: includeKpi }),
   });
   if (!response.ok) throw new Error('AI API zlyhalo');
   return response.json();
@@ -192,13 +207,45 @@ function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [minNodes, setMinNodes] = useState(4);
   const [maxNodes, setMaxNodes] = useState(8);
+  const [includeKpi, setIncludeKpi] = useState(false);
   const [laneCustomWidth, setLaneCustomWidth] = useState(null);
+  const [copilotPrompt, setCopilotPrompt] = useState('');
+  const [isCopilotLoading, setIsCopilotLoading] = useState(false);
   const [, setLaneMinWidth] = useState(800);
   const [view, setView] = useState('editor');
   const [username, setUsername] = useState(localStorage.getItem('auth_username') || null);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [pendingAction, setPendingAction] = useState(null);
   const [selectedCategory, setSelectedCategory] = useState('Iné');
+
+  // ─── LINTER: Automatická kontrola logiky diagramu ───
+  useEffect(() => {
+    setNodes(nds => {
+      let changed = false;
+      const newNodes = nds.map(n => {
+        if (n.type === 'swimlane') return n;
+        const isStart = n.id === 'start' || (n.data.baseLabel && n.data.baseLabel.toLowerCase().includes('zaiatok'));
+        const isEnd = n.id === 'end' || (n.data.baseLabel && n.data.baseLabel.toLowerCase().includes('koniec'));
+        const incomingCount = edges.filter(e => e.target === n.id).length;
+        const outgoingCount = edges.filter(e => e.source === n.id).length;
+        let isInvalid = false;
+        let validationMsg = '';
+        if (!isStart && incomingCount === 0) {
+          isInvalid = true;
+          validationMsg = 'Chyba vstupna hrana! Tento krok procesu je nedosiahnutelny.';
+        } else if (!isEnd && outgoingCount === 0) {
+          isInvalid = true;
+          validationMsg = 'Chyba vystupna hrana! Proces tu necakane konci - slepa ulicka.';
+        }
+        if (n.data.isInvalid !== isInvalid || n.data.validationMsg !== validationMsg) {
+          changed = true;
+          return { ...n, data: { ...n.data, isInvalid, validationMsg } };
+        }
+        return n;
+      });
+      return changed ? newNodes : nds;
+    });
+  }, [edges, setNodes]);
 
   // ─ Modal ───────────────────────────────────────────────────────────────
   const [modalConfig, setModalConfig] = useState(null);
@@ -211,48 +258,25 @@ function App() {
     showModal({ type: 'confirm', title, message: msg, confirmLabel, cancelLabel, danger });
 
   // ─ História Undo/Redo ──────────────────────────────────────────────
-  const histRef = useRef([{ nodes: [], edges: [] }]);
-  const histIdxRef = useRef(0);
-
+  const histRef = useRef([]);
+  const histIdxRef = useRef(-1);
   const saveHistory = useCallback((ns, es) => {
-    // Funkcia na vyčistenie UI stavov (React Flow), ktoré nemajú ovplyvňovať krok vpred/vzad
-    const cleanNodes = (items) => items.map(({ selected, dragging, positionAbsolute, ...rest }) => rest);
-
-    if (histRef.current.length > 0 && histIdxRef.current >= 0) {
-      const current = histRef.current[histIdxRef.current];
-      // Ak sa diagram nezmenil (napr. len kliknutie na uzol), neukladáme to do histórie,
-      // čím zabránime strate "Redo" (krok vpred) po obyčajnom prekliku.
-      if (JSON.stringify(cleanNodes(current.nodes)) === JSON.stringify(cleanNodes(ns)) && 
-          JSON.stringify(current.edges) === JSON.stringify(es)) {
-        return;
-      }
-    }
-
     histRef.current = histRef.current.slice(0, histIdxRef.current + 1);
-    histRef.current.push({
-      nodes: JSON.parse(JSON.stringify(ns)),
-      edges: JSON.parse(JSON.stringify(es)),
-    });
-    if (histRef.current.length > 50) {
-      histRef.current.shift();
-    }
+    histRef.current.push({ nodes: ns, edges: es });
+    if (histRef.current.length > 50) histRef.current.shift();
     histIdxRef.current = histRef.current.length - 1;
   }, []);
-
   const undo = useCallback(() => {
     if (histIdxRef.current <= 0) return;
     histIdxRef.current -= 1;
     const s = histRef.current[histIdxRef.current];
-    setNodes(JSON.parse(JSON.stringify(s.nodes)));
-    setEdges(JSON.parse(JSON.stringify(s.edges)));
+    setNodes(s.nodes); setEdges(s.edges);
   }, [setNodes, setEdges]);
-
   const redo = useCallback(() => {
     if (histIdxRef.current >= histRef.current.length - 1) return;
     histIdxRef.current += 1;
     const s = histRef.current[histIdxRef.current];
-    setNodes(JSON.parse(JSON.stringify(s.nodes)));
-    setEdges(JSON.parse(JSON.stringify(s.edges)));
+    setNodes(s.nodes); setEdges(s.edges);
   }, [setNodes, setEdges]);
   useEffect(() => {
     const h = (e) => {
@@ -277,7 +301,7 @@ function App() {
 
   // ── KĽÚČOVÁ OPRAVA: čítame edges PRED zavolaním setEdges ───
   const onConnect = useCallback(async (params) => {
-    const currentSourceEdges = edges.filter((e) => e.source === params.source);
+    const currentSourceEdges = edges.filter(e => e.source === params.source);
     const currentCount = currentSourceEdges.length;
 
     let newEdgeLabel = null;
@@ -287,47 +311,33 @@ function App() {
       const r2 = await modalPrompt('Podmienka pre NOVÚ cestu (napr. Áno):', 'Áno', 'Áno');
       if (r2 === null) return;
       newEdgeLabel = r2.trim() || 'Možnosť 2';
-
       const firstEdge = currentSourceEdges[0];
       if (!firstEdge.label || firstEdge.label.trim() === '') {
-        const r1 = await modalPrompt('Podmienka pre PRVÚ cestu (napr. Nie):', 'Nie', 'Nie');
+        const r1 = await modalPrompt('Podmienka pre PRVU cestu (napr. Nie):', 'Nie', 'Nie');
         if (r1 === null) return;
         firstEdgeLabelUpdates[firstEdge.id] = r1.trim() || 'Možnosť 1';
       }
     } else if (currentCount > 1) {
-      const rn = await modalPrompt(
-        'Podmienka pre novú cestu:',
-        `Možnosť ${currentCount + 1}`,
-        `Možnosť ${currentCount + 1}`
-      );
+      const rn = await modalPrompt('Podmienka pre novú cestu:', `Možnosť ${currentCount + 1}`, `Možnosť ${currentCount + 1}`);
       if (rn === null) return;
       newEdgeLabel = rn.trim() || `Možnosť ${currentCount + 1}`;
     }
 
-    const updatedEdgesBase = edges.map((e) =>
-      firstEdgeLabelUpdates[e.id]
-        ? { ...e, label: firstEdgeLabelUpdates[e.id] }
-        : e
-    );
+    setEdges((eds) => {
+      const updated = eds.map(e =>
+        firstEdgeLabelUpdates[e.id] ? { ...e, label: firstEdgeLabelUpdates[e.id] } : e
+      );
+      return addEdge({ ...params, ...edgeOptions, label: newEdgeLabel }, updated);
+    });
 
-    const nextEdges = addEdge(
-      { ...params, ...edgeOptions, label: newEdgeLabel },
-      updatedEdgesBase
-    );
-
-    const nextNodes =
-      currentCount >= 1
-        ? nodes.map((n) =>
-            n.id === params.source
-              ? { ...n, data: { ...n.data, isDecision: true } }
-              : n
-          )
-        : nodes;
-
-    setEdges(nextEdges);
-    setNodes(nextNodes);
-    saveHistory(nextNodes, nextEdges);
-  }, [edges, nodes, setEdges, setNodes, edgeOptions]);
+    if (currentCount >= 1) {
+      setNodes((nds) =>
+        nds.map(n =>
+          n.id === params.source ? { ...n, data: { ...n.data, isDecision: true } } : n
+        )
+      );
+    }
+  }, [edges, setEdges, setNodes, edgeOptions]);
 
   const onSelectionChange = useCallback(({ nodes: sel }) => {
     const nonLane = sel?.find((n) => n.type !== 'swimlane');
@@ -402,7 +412,7 @@ function App() {
   const loadModel = async () => {
     setIsLoading(true); setLaneCustomWidth(null);
     try {
-      const data = await generateDiagramFromText(promptText || 'Vygeneruj jednoduchý business proces', minNodes, maxNodes);
+      const data = await generateDiagramFromText(promptText || 'Vygeneruj jednoduchý business proces', minNodes, maxNodes, includeKpi);
       if (data.nodes.some(n => n.id === "start" && n.label === "Chyba AI")) {
         await modalAlert(data.nodes.find(n => n.id === 'end')?.label || 'Chyba AI', 'Chyba AI');
         setIsLoading(false); return;
@@ -413,7 +423,15 @@ function App() {
 
       const rawNodes = (data.nodes || []).map((node) => ({
         id: node.id, type: 'task',
-        data: { label: makeLabel(node.label, node.actor || '', showActors), baseLabel: node.label, actor: node.actor || '', nodeType: node.type || 'task', isDecision: (outgoingCounts[node.id] || 0) > 1 },
+        data: { 
+          label: makeLabel(node.label, node.actor || '', showActors), 
+          baseLabel: node.label, 
+          actor: node.actor || '', 
+          nodeType: node.type || 'task', 
+          isDecision: (outgoingCounts[node.id] || 0) > 1,
+          durationMinutes: node.duration_minutes || null,
+          costEuros: node.cost_euros || null
+        },
         position: { x: 0, y: 0 },
       }));
 
@@ -507,12 +525,96 @@ function App() {
     const edge = edges.find((e) => e.id === selectedEdgeId);
     const newLabel = await modalPrompt('Podmienka na hrane:', '', edge?.label || '');
     if (newLabel !== null) {
-      const updatedEdges = edges.map((e) =>
-        e.id === selectedEdgeId ? { ...e, label: newLabel || undefined } : e
-      );
-      setEdges(updatedEdges);
-      saveHistory(nodes, updatedEdges);
+      setEdges((eds) => eds.map((e) => e.id === selectedEdgeId ? { ...e, label: newLabel || undefined } : e));
     }
+  };
+
+
+  // ─── AI COPILOT ───────────────────────────────────────────────
+  const editDiagramWithAI = async () => {
+    if (!copilotPrompt.trim() || taskNodes.length === 0) return;
+    setIsCopilotLoading(true);
+    try {
+      const currentModel = {
+        nodes: taskNodes.map(n => ({
+          id: n.id,
+          type: n.data.nodeType || 'task',
+          label: n.data.baseLabel || n.data.label,
+          actor: n.data.actor || null,
+          duration_minutes: n.data.durationMinutes || null,
+          cost_euros: n.data.costEuros || null,
+        })),
+        edges: edges.map(e => ({
+          id: e.id,
+          source: e.source,
+          target: e.target,
+          label: e.label || null,
+        })),
+      };
+      const response = await fetch(`${API}/edit-model`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ instruction: copilotPrompt, current_model: currentModel }),
+      });
+      if (!response.ok) throw new Error('Copilot API zlyhalo');
+      const data = await response.json();
+      if (!data.nodes?.length) throw new Error('AI nevratila uzly');
+
+      const outgoingCounts = {};
+      data.edges.forEach(e => { outgoingCounts[e.source] = (outgoingCounts[e.source] || 0) + 1; });
+
+      const rawNodes = data.nodes.map(node => ({
+        id: node.id,
+        type: 'task',
+        data: {
+          label: makeLabel(node.label, node.actor, showActors),
+          baseLabel: node.label,
+          actor: node.actor || '',
+          nodeType: node.type || 'task',
+          isDecision: (outgoingCounts[node.id] || 0) > 1,
+          durationMinutes: node.duration_minutes || null,
+          costEuros: node.cost_euros || null,
+        },
+        position: { x: 0, y: 0 },
+      }));
+
+      const rawEdges = data.edges.map(edge => ({
+        id: edge.id,
+        source: edge.source,
+        target: edge.target,
+        label: edge.label || null,
+        ...edgeOptions,
+      }));
+
+      setLaneCustomWidth(null);
+      const { nodes: laid, edges: laidEdges } = buildSwimLaneLayout(rawNodes, rawEdges);
+      setNodes(laid);
+      setEdges(laidEdges);
+      saveHistory(laid, laidEdges);
+      setCopilotPrompt('');
+    } catch (err) {
+      await modalAlert(`Copilot zlyhal: ${err.message}`, 'Chyba Copilota');
+    } finally {
+      setIsCopilotLoading(false);
+    }
+  };
+  const editNodeKpi = async () => {
+    if (!selectedNodeId) return;
+    const cur = taskNodes.find(n => n.id === selectedNodeId);
+    if (!cur) return;
+    const durStr = await modalPrompt('Trvanie uzla (minuty)', 'napr. 30', cur?.data?.durationMinutes?.toString() || '');
+    if (durStr === null) return;
+    const costStr = await modalPrompt('Naklady uzla (eura)', 'napr. 50', cur?.data?.costEuros?.toString() || '');
+    if (costStr === null) return;
+    const durationMinutes = durStr.trim() ? parseFloat(durStr.trim()) || null : null;
+    const costEuros = costStr.trim() ? parseFloat(costStr.trim()) || null : null;
+    const updatedTasks = taskNodes.map(n =>
+      n.id === selectedNodeId ? { ...n, data: { ...n.data, durationMinutes, costEuros } } : n
+    );
+    const { nodes: laid, edges: laidEdges } = buildSwimLaneLayout(updatedTasks, edges);
+    setNodes(laid);
+    setEdges(laidEdges);
+    saveHistory(laid, laidEdges);
   };
 
   const changeActorSelected = async () => {
@@ -548,27 +650,20 @@ function App() {
 
   const deleteSelectedEdge = () => {
     if (!selectedEdgeId) return;
-
-    const edgeToDelete = edges.find((e) => e.id === selectedEdgeId);
+    const edgeToDelete = edges.find(e => e.id === selectedEdgeId);
     const sourceNodeId = edgeToDelete?.source;
     const remainingEdges = edges.filter((e) => e.id !== selectedEdgeId);
 
-    let updatedNodes = nodes;
-
     if (sourceNodeId) {
-      const remainingOut = remainingEdges.filter((e) => e.source === sourceNodeId).length;
+      const remainingOut = remainingEdges.filter(e => e.source === sourceNodeId).length;
       if (remainingOut <= 1) {
-        updatedNodes = nodes.map((n) =>
-          n.id === sourceNodeId
-            ? { ...n, data: { ...n.data, isDecision: false } }
-            : n
-        );
+        setNodes((nds) => nds.map(n =>
+          n.id === sourceNodeId ? { ...n, data: { ...n.data, isDecision: false } } : n
+        ));
       }
     }
 
-    setNodes(updatedNodes);
     setEdges(remainingEdges);
-    saveHistory(updatedNodes, remainingEdges);
     setSelectedEdgeId(null);
   };
 
@@ -657,8 +752,37 @@ function App() {
                 <input type="number" value={maxNodes} onChange={(e) => setMaxNodes(e.target.value)} min="2" style={{ width: '40px', background: 'transparent', border: 'none', color: '#fff', fontSize: '13px', textAlign: 'center', outline: 'none' }} />
               </div>
             </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 0', marginTop: '8px' }}>
+              <input type="checkbox" id="kpi-checkbox" checked={includeKpi} onChange={(e) => setIncludeKpi(e.target.checked)} style={{ cursor: 'pointer' }} />
+              <label htmlFor="kpi-checkbox" style={{ fontSize: '11px', color: COLORS.textMuted, cursor: 'pointer' }}>Vygenerovať odhady pre trvanie a náklady (KPI)</label>
+            </div>
             <SidebarButton icon={Icons.Generate} label={isLoading ? 'Generujem...' : 'Generovať model'} onClick={loadModel} disabled={isLoading || !promptText.trim()} variant="primary" fullWidth />
           </div>
+
+            {/* ── AI COPILOT ────────────────────────────────────── */}
+            <div style={{ background: COLORS.sidebarCard, padding: '16px', borderRadius: '12px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div style={{ fontSize: '12px', fontWeight: '600', textTransform: 'uppercase', color: COLORS.textMuted, letterSpacing: '1px' }}>AI Copilot</div>
+              <div style={{ fontSize: '11px', color: COLORS.textMuted, lineHeight: 1.5 }}>
+                Uprav diagram prirodzenym jazykom.<br/>
+                <span style={{ color: '#818cf8' }}>Napr: "Pridaj schvalovaci krok medzi t2 a t3"</span>
+              </div>
+              <textarea
+                placeholder="Popis zmeny..."
+                value={copilotPrompt}
+                onChange={e => setCopilotPrompt(e.target.value)}
+                onKeyDown={e => { if (e.ctrlKey && e.key === 'Enter') editDiagramWithAI(); }}
+                style={{ width: '100%', minHeight: '70px', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(0,0,0,0.2)', color: '#fff', fontSize: '12px', resize: 'vertical', outline: 'none', fontFamily: 'inherit', lineHeight: 1.4 }}
+              />
+              <SidebarButton
+                icon={Icons.Generate}
+                label={isCopilotLoading ? 'Upravujem...' : 'Upravit diagram (Ctrl+Enter)'}
+                onClick={editDiagramWithAI}
+                disabled={isCopilotLoading || !copilotPrompt.trim() || taskNodes.length === 0}
+                variant="primary"
+                fullWidth
+              />
+            </div>
+
 
           {/* Úprava uzlov */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -670,6 +794,9 @@ function App() {
             <div style={{ display: 'flex', gap: '8px' }}>
               <SidebarButton icon={Icons.Edit} label="Uzol" onClick={renameSelectedNode} disabled={!selectedNodeId} />
               <SidebarButton icon={Icons.User} label="Rola" onClick={changeActorSelected} disabled={!selectedNodeId} />
+            </div>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <SidebarButton icon={Icons.KPI} label="KPI uzla" onClick={editNodeKpi} disabled={!selectedNodeId} fullWidth />
             </div>
             <div style={{ display: 'flex', gap: '8px' }}>
               <SidebarButton icon={Icons.Text} label="Text hrany" onClick={renameSelectedEdge} disabled={!selectedEdgeId} fullWidth />
@@ -746,7 +873,6 @@ function App() {
         <ReactFlow
           nodes={nodes} edges={edges} nodeTypes={nodeTypes}
           onNodesChange={onNodesChange} onEdgesChange={onEdgesChange}
-          onNodeDragStop={() => saveHistory(nodes, edges)}
           onConnect={onConnect} onSelectionChange={onSelectionChange} onEdgeClick={onEdgeClick}
           connectionLineType={ConnectionLineType.SmoothStep} fitView defaultEdgeOptions={edgeOptions}
         >
