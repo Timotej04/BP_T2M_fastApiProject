@@ -68,7 +68,8 @@ const Icons = {
   Download: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>,
   Undo: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 14 4 9 9 4"></polyline><path d="M20 20v-7a4 4 0 0 0-4-4H4"></path></svg>,
   Redo: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 14 20 9 15 4"></polyline><path d="M4 20v-7a4 4 0 0 1 4-4h12"></path></svg>,
-  KPI: () => (<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>)
+  KPI: () => (<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>),
+  Bpmn: () => (<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>)
 };
 
 
@@ -209,8 +210,6 @@ function App() {
   const [maxNodes, setMaxNodes] = useState(8);
   const [includeKpi, setIncludeKpi] = useState(false);
   const [laneCustomWidth, setLaneCustomWidth] = useState(null);
-  const [copilotPrompt, setCopilotPrompt] = useState('');
-  const [isCopilotLoading, setIsCopilotLoading] = useState(false);
   const [, setLaneMinWidth] = useState(800);
   const [view, setView] = useState('editor');
   const [username, setUsername] = useState(localStorage.getItem('auth_username') || null);
@@ -316,6 +315,7 @@ function App() {
         const r1 = await modalPrompt('Podmienka pre PRVU cestu (napr. Nie):', 'Nie', 'Nie');
         if (r1 === null) return;
         firstEdgeLabelUpdates[firstEdge.id] = r1.trim() || 'Možnosť 1';
+        firstEdgeLabelUpdates[firstEdge.id] = fl;
       }
     } else if (currentCount > 1) {
       const rn = await modalPrompt('Podmienka pre novú cestu:', `Možnosť ${currentCount + 1}`, `Možnosť ${currentCount + 1}`);
@@ -482,7 +482,324 @@ function App() {
   const saveToCatalog = () => requireAuth(executeSaveToCatalog);
   const openCatalog = () => requireAuth(() => setView('catalog'));
 
-  // ─ Export diagramu ako obrázok ────────────────────────────────────
+  // ─ Export diagramu do BPMN 2.0 XML ────────────────────────────────────
+  const handleDownloadBpmn = async () => {
+    if (taskNodes.length === 0) { modalAlert('Diagram je prázdny.'); return; }
+    const hasErrors = taskNodes.some(n => n.data.isInvalid);
+    if (hasErrors) {
+      const proceed = await modalConfirm('Diagram má chyby. Stiahnuť aj tak?', 'Upozornenie', 'Stiahnuť', 'Zrušiť');
+      if (!proceed) return;
+    }
+
+    // ── Layout konštanty ─────────────────────────────────────────────────
+    const POOL_LABEL_W = 30;
+    const LANE_LABEL_W = 30;
+    const HEADER_W     = POOL_LABEL_W + LANE_LABEL_W;
+    const COL_W        = 200;
+    const ROW_H        = 140;
+    const NODE_W       = 120;
+    const NODE_H       = 60;
+    const GW_SIZE      = 50;
+    const SE_SIZE      = 36;
+    const PAD_X        = 40;
+    const POOL_X       = 80;
+    const POOL_Y       = 80;
+
+    // ── Unikatne lanes ───────────────────────────────────────────────────
+    const actorOrder = [];
+    const seenActors = new Set();
+    taskNodes.forEach(n => {
+      const a = n.data.actor || 'Bez roly';
+      if (!seenActors.has(a)) { seenActors.add(a); actorOrder.push(a); }
+    });
+    const laneCount = actorOrder.length;
+    const laneIdxOf = {};
+    actorOrder.forEach((a, i) => { laneIdxOf[a] = i; });
+
+    // ── Krok 1: Pociatocne stlpce cez Kahn BFS ───────────────────────────
+    const inDeg  = {};
+    const outMap = {};
+    taskNodes.forEach(n => { inDeg[n.id] = 0; outMap[n.id] = []; });
+    edges.forEach(e => {
+      if (inDeg[e.target]  !== undefined) inDeg[e.target]++;
+      if (outMap[e.source] !== undefined) outMap[e.source].push(e.target);
+    });
+    const col  = {};
+    const bfsQ = taskNodes.filter(n => inDeg[n.id] === 0).map(n => n.id);
+    bfsQ.forEach(id => { col[id] = 0; });
+    const proc = [...bfsQ];
+    while (proc.length > 0) {
+      const cur = proc.shift();
+      (outMap[cur] || []).forEach(nxt => {
+        col[nxt] = Math.max(col[nxt] || 0, (col[cur] || 0) + 1);
+        inDeg[nxt]--;
+        if (inDeg[nxt] === 0) proc.push(nxt);
+      });
+    }
+    taskNodes.forEach(n => { if (col[n.id] === undefined) col[n.id] = 0; });
+
+    // ── Krok 2: Iteracna stabilizacia (max 50 kol) ───────────────────────
+    // Pôvodné stĺpce z Kahnovho algoritmu nám určia, ktoré hrany idú späť (cykly)
+    const origCol = { ...col }; 
+
+    for (let iter = 0; iter < 50; iter++) {
+      let changed = false;
+
+      // A) Hranova podmienka: col[target] > col[source]
+      edges.forEach(e => {
+        const cs = col[e.source];
+        const ct = col[e.target];
+        // Preskočíme spätné hrany (cykly), aby sme nespôsobili nekonečné naťahovanie
+        const isBackEdge = (origCol[e.target] || 0) <= (origCol[e.source] || 0);
+
+        if (!isBackEdge && cs !== undefined && ct !== undefined && ct <= cs) {
+          col[e.target] = cs + 1;
+          changed = true;
+        }
+      });
+
+      // B) Kolizie v ramci lane
+      const laneColUsed = {};
+      taskNodes
+        .slice()
+        .sort((a, b) => (col[a.id] || 0) - (col[b.id] || 0))
+        .forEach(n => {
+          const li = laneIdxOf[n.data.actor || 'Bez roly'] ?? 0;
+          let c = col[n.id] || 0;
+          const startC = c;
+          while (laneColUsed[li + '_' + c]) c++;
+          if (c !== startC) { col[n.id] = c; changed = true; }
+          laneColUsed[li + '_' + c] = true;
+        });
+
+      if (!changed) break;
+    }
+
+    // ── Finalny maxCol a rozmery diagramu ────────────────────────────────
+    const maxCol   = Math.max(0, ...taskNodes.map(n => col[n.id] || 0));
+    const contentW = PAD_X + (maxCol + 1) * COL_W + PAD_X;
+    const laneW    = Math.max(LANE_LABEL_W + contentW, 800); // aspoň 800px
+    const totalH   = laneCount * ROW_H;
+
+    // ── Pozicie uzlov ────────────────────────────────────────────────────
+    const isStartNode = n => n.id === 'start' || (n.data.baseLabel || n.data.label || '').toLowerCase().includes('začiatok');
+    const isEndNode   = n => n.id === 'end'   || (n.data.baseLabel || n.data.label || '').toLowerCase().includes('koniec');
+    const nodeSize    = n => {
+      if (isStartNode(n) || isEndNode(n)) return { w: SE_SIZE, h: SE_SIZE };
+      if (n.data.isDecision)               return { w: GW_SIZE, h: GW_SIZE };
+      return { w: NODE_W, h: NODE_H };
+    };
+
+    const nodePos = {};
+    taskNodes.forEach(n => {
+      const li       = laneIdxOf[n.data.actor || 'Bez roly'] ?? 0;
+      const { w, h } = nodeSize(n);
+      const cx = POOL_X + HEADER_W + PAD_X + (col[n.id] || 0) * COL_W + NODE_W / 2;
+      const cy = POOL_Y + li * ROW_H + ROW_H / 2;
+      nodePos[n.id] = {
+        x: Math.round(cx - w / 2), y: Math.round(cy - h / 2),
+        w, h, cx: Math.round(cx),  cy: Math.round(cy)
+      };
+    });
+
+    const esc = s => (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    const processId     = 'Process_1';
+    const collabId      = 'Collaboration_1';
+    const participantId = 'Participant_1';
+
+    // ── laneSet ──────────────────────────────────────────────────────────
+    let laneSetXml = '\n    <bpmn:laneSet id="LaneSet_1">';
+    actorOrder.forEach((actor, idx) => {
+      const refs = taskNodes
+        .filter(n => (n.data.actor || 'Bez roly') === actor)
+        .map(n => '\n        <bpmn:flowNodeRef>' + n.id + '</bpmn:flowNodeRef>')
+        .join('');
+      laneSetXml += '\n      <bpmn:lane id="Lane_' + idx + '" name="' + esc(actor) + '">' + refs + '\n      </bpmn:lane>';
+    });
+    laneSetXml += '\n    </bpmn:laneSet>';
+
+    // ── Uzly ─────────────────────────────────────────────────────────────
+    let bpmnNodes = '';
+    taskNodes.forEach(n => {
+      const lbl = n.data.baseLabel || n.data.label || '';
+      let et = 'bpmn:task';
+      if (isStartNode(n))         et = 'bpmn:startEvent';
+      else if (isEndNode(n))      et = 'bpmn:endEvent';
+      else if (n.data.isDecision) et = 'bpmn:exclusiveGateway';
+
+      bpmnNodes += '\n    <' + et + ' id="' + n.id + '" name="' + esc(lbl) + '">';
+      const hasDur  = n.data.durationMinutes != null;
+      const hasCost = n.data.costEuros != null;
+      if (et === 'bpmn:task' && (hasDur || hasCost)) {
+        let doc = '';
+        if (hasDur)            doc += 'Trvanie: ' + n.data.durationMinutes + ' min';
+        if (hasDur && hasCost) doc += ' | ';
+        if (hasCost)           doc += 'Naklady: ' + n.data.costEuros + ' EUR';
+        bpmnNodes += '\n      <bpmn:documentation>' + doc + '</bpmn:documentation>';
+        bpmnNodes += '\n      <bpmn:extensionElements>\n        <camunda:properties>';
+        if (hasDur)  bpmnNodes += '\n          <camunda:property name="durationMinutes" value="' + n.data.durationMinutes + '" />';
+        if (hasCost) bpmnNodes += '\n          <camunda:property name="costEuros" value="' + n.data.costEuros + '" />';
+        bpmnNodes += '\n        </camunda:properties>\n      </bpmn:extensionElements>';
+      }
+      edges.filter(e => e.target === n.id).forEach(e => { bpmnNodes += '\n      <bpmn:incoming>' + e.id + '</bpmn:incoming>'; });
+      edges.filter(e => e.source === n.id).forEach(e => { bpmnNodes += '\n      <bpmn:outgoing>' + e.id + '</bpmn:outgoing>'; });
+      bpmnNodes += '\n    </' + et + '>';
+    });
+
+    // ── Hrany ────────────────────────────────────────────────────────────
+    let bpmnEdges = '';
+    edges.forEach(e => {
+      bpmnEdges += '\n    <bpmn:sequenceFlow id="' + e.id + '" sourceRef="' + e.source + '" targetRef="' + e.target + '" name="' + esc(e.label || '') + '" />';
+    });
+
+    // ── DI: Participant + Lanes ──────────────────────────────────────────
+    const partTotalW = POOL_LABEL_W + laneW;
+    let diShapes = '\n      <bpmndi:BPMNShape id="' + participantId + '_di" bpmnElement="' + participantId + '" isHorizontal="true">'
+      + '\n        <dc:Bounds x="' + POOL_X + '" y="' + POOL_Y + '" width="' + partTotalW + '" height="' + totalH + '" />'
+      + '\n      </bpmndi:BPMNShape>';
+    actorOrder.forEach((_, idx) => {
+      diShapes += '\n      <bpmndi:BPMNShape id="Lane_' + idx + '_di" bpmnElement="Lane_' + idx + '" isHorizontal="true">'
+        + '\n        <dc:Bounds x="' + (POOL_X + POOL_LABEL_W) + '" y="' + (POOL_Y + idx * ROW_H) + '" width="' + laneW + '" height="' + ROW_H + '" />'
+        + '\n      </bpmndi:BPMNShape>';
+    });
+
+    // ── DI: Uzly ─────────────────────────────────────────────────────────
+    taskNodes.forEach(n => {
+      const p = nodePos[n.id];
+      diShapes += '\n      <bpmndi:BPMNShape id="' + n.id + '_di" bpmnElement="' + n.id + '"'
+        + (n.data.isDecision ? ' isMarkerVisible="true"' : '') + '>'
+        + '\n        <dc:Bounds x="' + p.x + '" y="' + p.y + '" width="' + p.w + '" height="' + p.h + '" />'
+        + '\n      </bpmndi:BPMNShape>';
+    });
+
+    // ── DI: Hrany (Založené na pravidlách Camunda / BPMN.io) ─────────────
+    // Ak sa ciara vracia dozadu (cyklus), ide VRCHOM / SPODKOM
+    // Ak ide dopredu, ale skace stlpce, tiez sa nesmie prekryvat s uzlami
+
+    const routeEdge = (sc, tc, x1, y1, x2, y2, scRow, tcRow, isBackwards) => {
+      // ── MEDZERY ────────────────────────────────────────────────────────
+      // midGapSource = zvislá línia VŽDY ZA stĺpcom source
+      const midGapSource = POOL_X + HEADER_W + PAD_X + sc * COL_W + NODE_W + (COL_W - NODE_W) / 2;
+      // midGapTarget = zvislá línia VŽDY PRED stĺpcom target
+      const midGapTarget = POOL_X + HEADER_W + PAD_X + (tc - 1) * COL_W + NODE_W + (COL_W - NODE_W) / 2;
+
+      // ── 1. BACKWARDS cyklus (šípka ide späť) ───────────────────────────
+      if (isBackwards) {
+        const outX = x1 + 15;
+        // Obchádzka vrškom lane, aby sa netrafila s doprednými spojmi
+        const detourY = Math.round(POOL_Y + scRow * ROW_H + 15);
+        const inX = x2 - 15;
+
+        return '\n        <di:waypoint x="' + x1 + '" y="' + y1 + '" />'
+             + '\n        <di:waypoint x="' + outX + '" y="' + y1 + '" />'
+             + '\n        <di:waypoint x="' + outX + '" y="' + detourY + '" />'
+             + '\n        <di:waypoint x="' + inX + '" y="' + detourY + '" />'
+             + '\n        <di:waypoint x="' + inX + '" y="' + y2 + '" />'
+             + '\n        <di:waypoint x="' + x2 + '" y="' + y2 + '" />';
+      }
+
+      // ── 2. FORWARDS (rôzne lane) ───────────────────────────────────────
+      if (scRow !== tcRow) {
+        // Preskočenie z jednej lane do druhej
+        // Ak target je v ďalšom stĺpci: L-tvar cez midGapSource (nikdy nepretína stĺpce)
+        if (tc === sc + 1) {
+          return '\n        <di:waypoint x="' + x1 + '" y="' + y1 + '" />'
+               + '\n        <di:waypoint x="' + midGapSource + '" y="' + y1 + '" />'
+               + '\n        <di:waypoint x="' + midGapSource + '" y="' + y2 + '" />'
+               + '\n        <di:waypoint x="' + x2 + '" y="' + y2 + '" />';
+        } else {
+          // Ak preskakuje stĺpce, ideme zvislo dole/hore vo vlastnej lane, potom vodorovne popod iné uzly
+          // Cesta: von zo source -> dole na okraj lane -> potiahni sa k target lane cez prázdny priestor -> vlez dnu
+
+          // Zistíme, kadiaľ ísť. Ak targetLane je nižšie, pôjdeme spodkom lane. Ak vyššie, pôjdeme vrškom.
+          const isGoingDown = tcRow > scRow;
+
+          // Nájdeme Y súradnicu pre "diaľnicu" (zvislá medzera medzi lanes)
+          const highwayY = isGoingDown 
+            ? Math.round(POOL_Y + (scRow + 1) * ROW_H)  // medzera POD source lane
+            : Math.round(POOL_Y + scRow * ROW_H);       // medzera NAD source lane
+
+          return '\n        <di:waypoint x="' + x1 + '" y="' + y1 + '" />'
+               + '\n        <di:waypoint x="' + midGapSource + '" y="' + y1 + '" />'
+               + '\n        <di:waypoint x="' + midGapSource + '" y="' + highwayY + '" />'
+               + '\n        <di:waypoint x="' + midGapTarget + '" y="' + highwayY + '" />'
+               + '\n        <di:waypoint x="' + midGapTarget + '" y="' + y2 + '" />'
+               + '\n        <di:waypoint x="' + x2 + '" y="' + y2 + '" />';
+        }
+      }
+
+      // ── 3. FORWARDS (rovnaká lane) ─────────────────────────────────────
+      if (scRow === tcRow) {
+        if (tc === sc + 1) {
+          // Priama čiara
+          return '\n        <di:waypoint x="' + x1 + '" y="' + y1 + '" />'
+               + '\n        <di:waypoint x="' + x2 + '" y="' + y2 + '" />';
+        } else {
+          // Preskakuje stĺpce v rovnakej lane -> ideme spodkom lane (pod uzlami)
+          const detourY = Math.round(POOL_Y + scRow * ROW_H + ROW_H - 10); // úzko pod uzlami na dolnom okraji
+
+          return '\n        <di:waypoint x="' + x1 + '" y="' + y1 + '" />'
+               + '\n        <di:waypoint x="' + midGapSource + '" y="' + y1 + '" />'
+               + '\n        <di:waypoint x="' + midGapSource + '" y="' + detourY + '" />'
+               + '\n        <di:waypoint x="' + midGapTarget + '" y="' + detourY + '" />'
+               + '\n        <di:waypoint x="' + midGapTarget + '" y="' + y2 + '" />'
+               + '\n        <di:waypoint x="' + x2 + '" y="' + y2 + '" />';
+        }
+      }
+    };
+
+    let diEdges = '';
+    edges.forEach(e => {
+      const sn = taskNodes.find(n => n.id === e.source);
+      const tn = taskNodes.find(n => n.id === e.target);
+      if (!sn || !tn) return;
+
+      const sp = nodePos[sn.id];
+      const tp = nodePos[tn.id];
+      const sc = col[sn.id] || 0;
+      const tc = col[tn.id] || 0;
+      const scRow = laneIdxOf[sn.data.actor || 'Bez roly'] ?? 0;
+      const tcRow = laneIdxOf[tn.data.actor || 'Bez roly'] ?? 0;
+
+      const x1 = sp.x + sp.w;   const y1 = sp.cy;
+      const x2 = tp.x;          const y2 = tp.cy;
+      const isBackwards = tc <= sc; // cykly idú do predošlého alebo rovnakého stĺpca
+
+      const wpts = routeEdge(sc, tc, x1, y1, x2, y2, scRow, tcRow, isBackwards);
+      diEdges += '\n      <bpmndi:BPMNEdge id="' + e.id + '_di" bpmnElement="' + e.id + '">' + wpts + '\n      </bpmndi:BPMNEdge>';
+    });
+
+    // ── Finálne XML ──────────────────────────────────────────────────────
+    const xml = '<?xml version="1.0" encoding="UTF-8"?>\n'
+      + '<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" '
+      + 'xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" '
+      + 'xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" '
+      + 'xmlns:di="http://www.omg.org/spec/DD/20100524/DI" '
+      + 'xmlns:camunda="http://camunda.org/schema/1.0/bpmn" '
+      + 'id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">\n'
+      + '  <bpmn:collaboration id="' + collabId + '">\n'
+      + '    <bpmn:participant id="' + participantId + '" name="Proces" processRef="' + processId + '" />\n'
+      + '  </bpmn:collaboration>\n'
+      + '  <bpmn:process id="' + processId + '" isExecutable="true">'
+      + laneSetXml + bpmnNodes + '\n' + bpmnEdges
+      + '\n  </bpmn:process>\n'
+      + '  <bpmndi:BPMNDiagram id="BPMNDiagram_1">\n'
+      + '    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="' + collabId + '">'
+      + diShapes + diEdges
+      + '\n    </bpmndi:BPMNPlane>\n  </bpmndi:BPMNDiagram>\n</bpmn:definitions>';
+
+    const blob = new Blob([xml], { type: 'text/xml;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'diagram.bpmn';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 250);
+  };
+
+    // ─ Export diagramu ako obrázok ────────────────────────────────────
   const handleDownload = (format = 'png') => {
     const viewport = document.querySelector('.react-flow__viewport');
     if (!viewport) { modalAlert('Diagram nie je k dispozícii.'); return; }
@@ -497,7 +814,7 @@ function App() {
     fn(viewport, {
       backgroundColor: '#f0f4f8', width: imgW, height: imgH, pixelRatio: 2,
       style: { width: imgW, height: imgH, transform: `translate(${tx}px, ${ty}px) scale(${sc})`, transformOrigin: 'top left' },
-    }).then(url => { const a = document.createElement('a'); a.href = url; a.download = `diagram.${format}`; a.click(); })
+    }).then(url => { const a = document.createElement('a'); a.href = url; a.download = `diagram.${format}`; document.body.appendChild(a); a.click(); document.body.removeChild(a); setTimeout(() => URL.revokeObjectURL(url), 250); })
       .catch(() => modalAlert('Export zlyhal. Skontroluj konzolu.', 'Chyba'));
   };
 
@@ -529,75 +846,6 @@ function App() {
     }
   };
 
-
-  // ─── AI COPILOT ───────────────────────────────────────────────
-  const editDiagramWithAI = async () => {
-    if (!copilotPrompt.trim() || taskNodes.length === 0) return;
-    setIsCopilotLoading(true);
-    try {
-      const currentModel = {
-        nodes: taskNodes.map(n => ({
-          id: n.id,
-          type: n.data.nodeType || 'task',
-          label: n.data.baseLabel || n.data.label,
-          actor: n.data.actor || null,
-          duration_minutes: n.data.durationMinutes || null,
-          cost_euros: n.data.costEuros || null,
-        })),
-        edges: edges.map(e => ({
-          id: e.id,
-          source: e.source,
-          target: e.target,
-          label: e.label || null,
-        })),
-      };
-      const response = await fetch(`${API}/edit-model`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ instruction: copilotPrompt, current_model: currentModel }),
-      });
-      if (!response.ok) throw new Error('Copilot API zlyhalo');
-      const data = await response.json();
-      if (!data.nodes?.length) throw new Error('AI nevratila uzly');
-
-      const outgoingCounts = {};
-      data.edges.forEach(e => { outgoingCounts[e.source] = (outgoingCounts[e.source] || 0) + 1; });
-
-      const rawNodes = data.nodes.map(node => ({
-        id: node.id,
-        type: 'task',
-        data: {
-          label: makeLabel(node.label, node.actor, showActors),
-          baseLabel: node.label,
-          actor: node.actor || '',
-          nodeType: node.type || 'task',
-          isDecision: (outgoingCounts[node.id] || 0) > 1,
-          durationMinutes: node.duration_minutes || null,
-          costEuros: node.cost_euros || null,
-        },
-        position: { x: 0, y: 0 },
-      }));
-
-      const rawEdges = data.edges.map(edge => ({
-        id: edge.id,
-        source: edge.source,
-        target: edge.target,
-        label: edge.label || null,
-        ...edgeOptions,
-      }));
-
-      setLaneCustomWidth(null);
-      const { nodes: laid, edges: laidEdges } = buildSwimLaneLayout(rawNodes, rawEdges);
-      setNodes(laid);
-      setEdges(laidEdges);
-      saveHistory(laid, laidEdges);
-      setCopilotPrompt('');
-    } catch (err) {
-      await modalAlert(`Copilot zlyhal: ${err.message}`, 'Chyba Copilota');
-    } finally {
-      setIsCopilotLoading(false);
-    }
-  };
   const editNodeKpi = async () => {
     if (!selectedNodeId) return;
     const cur = taskNodes.find(n => n.id === selectedNodeId);
@@ -759,31 +1007,6 @@ function App() {
             <SidebarButton icon={Icons.Generate} label={isLoading ? 'Generujem...' : 'Generovať model'} onClick={loadModel} disabled={isLoading || !promptText.trim()} variant="primary" fullWidth />
           </div>
 
-            {/* ── AI COPILOT ────────────────────────────────────── */}
-            <div style={{ background: COLORS.sidebarCard, padding: '16px', borderRadius: '12px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              <div style={{ fontSize: '12px', fontWeight: '600', textTransform: 'uppercase', color: COLORS.textMuted, letterSpacing: '1px' }}>AI Copilot</div>
-              <div style={{ fontSize: '11px', color: COLORS.textMuted, lineHeight: 1.5 }}>
-                Uprav diagram prirodzenym jazykom.<br/>
-                <span style={{ color: '#818cf8' }}>Napr: "Pridaj schvalovaci krok medzi t2 a t3"</span>
-              </div>
-              <textarea
-                placeholder="Popis zmeny..."
-                value={copilotPrompt}
-                onChange={e => setCopilotPrompt(e.target.value)}
-                onKeyDown={e => { if (e.ctrlKey && e.key === 'Enter') editDiagramWithAI(); }}
-                style={{ width: '100%', minHeight: '70px', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(0,0,0,0.2)', color: '#fff', fontSize: '12px', resize: 'vertical', outline: 'none', fontFamily: 'inherit', lineHeight: 1.4 }}
-              />
-              <SidebarButton
-                icon={Icons.Generate}
-                label={isCopilotLoading ? 'Upravujem...' : 'Upravit diagram (Ctrl+Enter)'}
-                onClick={editDiagramWithAI}
-                disabled={isCopilotLoading || !copilotPrompt.trim() || taskNodes.length === 0}
-                variant="primary"
-                fullWidth
-              />
-            </div>
-
-
           {/* Úprava uzlov */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
             <div style={{ fontSize: '12px', fontWeight: '600', textTransform: 'uppercase', color: COLORS.textMuted, letterSpacing: '1px', marginBottom: '4px' }}>Úprava uzlov</div>
@@ -861,6 +1084,15 @@ function App() {
               </button>
               <button onClick={()=>handleDownload('jpg')} title="Stiahnuť celý diagram ako JPG" style={{flex:1,display:'flex',alignItems:'center',justifyContent:'center',gap:'6px',padding:'8px',background:'#312e81',color:'#fff',border:'none',borderRadius:'8px',cursor:'pointer',fontSize:'12px',fontWeight:600}}>
                 <Icons.Download /> JPG
+              </button>
+            </div>
+            <div style={{ display: 'flex', gap: '6px' }}>
+              <button
+                onClick={handleDownloadBpmn}
+                title="Stiahnuť ako BPMN 2.0 XML"
+                style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', padding: '8px', background: '#065f46', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '12px', fontWeight: 600 }}
+              >
+                <Icons.Bpmn /> BPMN
               </button>
             </div>
           </div>
