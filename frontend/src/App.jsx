@@ -516,32 +516,63 @@ function App() {
     const laneIdxOf = {};
     actorOrder.forEach((a, i) => { laneIdxOf[a] = i; });
 
-    // ── Krok 1: Pociatocne stlpce cez Kahn BFS ───────────────────────────
-    const inDeg  = {};
+    // ── Krok 1: Pociatocne stlpce (cykly -> robustny DFS + Kahn) ─────────
     const outMap = {};
-    taskNodes.forEach(n => { inDeg[n.id] = 0; outMap[n.id] = []; });
+    const inMap = {};
+    taskNodes.forEach(n => { outMap[n.id] = []; inMap[n.id] = []; });
     edges.forEach(e => {
-      if (inDeg[e.target]  !== undefined) inDeg[e.target]++;
-      if (outMap[e.source] !== undefined) outMap[e.source].push(e.target);
+      if (outMap[e.source]) outMap[e.source].push(e.target);
+      if (inMap[e.target]) inMap[e.target].push(e.source);
     });
-    const col  = {};
-    const bfsQ = taskNodes.filter(n => inDeg[n.id] === 0).map(n => n.id);
+
+    const visited = new Set();
+    const visiting = new Set();
+    const backEdges = new Set();
+
+    const dfs = (u) => {
+      visited.add(u);
+      visiting.add(u);
+      (outMap[u] || []).forEach(v => {
+        if (visiting.has(v)) {
+          backEdges.add(u + '->' + v);
+        } else if (!visited.has(v)) {
+          dfs(v);
+        }
+      });
+      visiting.delete(u);
+    };
+
+    const sortedByIn = [...taskNodes].sort((a, b) => inMap[a.id].length - inMap[b.id].length);
+    sortedByIn.forEach(n => {
+      if (!visited.has(n.id)) dfs(n.id);
+    });
+
+    const dagInDeg = {};
+    const dagOutMap = {};
+    taskNodes.forEach(n => { dagInDeg[n.id] = 0; dagOutMap[n.id] = []; });
+    edges.forEach(e => {
+      if (!backEdges.has(e.source + '->' + e.target)) {
+        if (dagOutMap[e.source]) dagOutMap[e.source].push(e.target);
+        if (dagInDeg[e.target] !== undefined) dagInDeg[e.target]++;
+      }
+    });
+
+    const col = {};
+    const bfsQ = taskNodes.filter(n => dagInDeg[n.id] === 0).map(n => n.id);
     bfsQ.forEach(id => { col[id] = 0; });
     const proc = [...bfsQ];
     while (proc.length > 0) {
       const cur = proc.shift();
-      (outMap[cur] || []).forEach(nxt => {
+      (dagOutMap[cur] || []).forEach(nxt => {
         col[nxt] = Math.max(col[nxt] || 0, (col[cur] || 0) + 1);
-        inDeg[nxt]--;
-        if (inDeg[nxt] === 0) proc.push(nxt);
+        dagInDeg[nxt]--;
+        if (dagInDeg[nxt] === 0) proc.push(nxt);
       });
     }
     taskNodes.forEach(n => { if (col[n.id] === undefined) col[n.id] = 0; });
 
     // ── Krok 2: Iteracna stabilizacia (max 50 kol) ───────────────────────
-    // Pôvodné stĺpce z Kahnovho algoritmu nám určia, ktoré hrany idú späť (cykly)
-    const origCol = { ...col }; 
-
+    // Pre "strict left-to-right" posunúť kolízie GLOBÁLNE, nie len pre lane.
     for (let iter = 0; iter < 50; iter++) {
       let changed = false;
 
@@ -550,7 +581,7 @@ function App() {
         const cs = col[e.source];
         const ct = col[e.target];
         // Preskočíme spätné hrany (cykly), aby sme nespôsobili nekonečné naťahovanie
-        const isBackEdge = (origCol[e.target] || 0) <= (origCol[e.source] || 0);
+        const isBackEdge = backEdges.has(e.source + '->' + e.target);
 
         if (!isBackEdge && cs !== undefined && ct !== undefined && ct <= cs) {
           col[e.target] = cs + 1;
@@ -558,22 +589,23 @@ function App() {
         }
       });
 
-      // B) Kolizie v ramci lane
-      const laneColUsed = {};
+      // B) Kolizie GLOBÁLNE V CELOM DIAGRAME
+      // Zabráni procesom byť "nad sebou" aj ked su v inej lane.
+      const colUsed = {};
       taskNodes
         .slice()
         .sort((a, b) => (col[a.id] || 0) - (col[b.id] || 0))
         .forEach(n => {
-          const li = laneIdxOf[n.data.actor || 'Bez roly'] ?? 0;
           let c = col[n.id] || 0;
           const startC = c;
-          while (laneColUsed[li + '_' + c]) c++;
+          while (colUsed[c]) c++; // Globálna kolízia stĺpca!
           if (c !== startC) { col[n.id] = c; changed = true; }
-          laneColUsed[li + '_' + c] = true;
+          colUsed[c] = true;
         });
 
       if (!changed) break;
     }
+
 
     // ── Finalny maxCol a rozmery diagramu ────────────────────────────────
     const maxCol   = Math.max(0, ...taskNodes.map(n => col[n.id] || 0));
