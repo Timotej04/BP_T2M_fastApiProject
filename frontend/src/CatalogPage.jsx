@@ -37,13 +37,13 @@ export default function CatalogPage({ username, onLogout, onLoadModel, onClose }
   const [activeTab, setActiveTab] = useState('all'); // 'all' | 'my' | 'public'
   const [deletingId, setDeletingId] = useState(null);
 
-  const fetchItems = useCallback(async () => {
+    const fetchItems = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
       const token = localStorage.getItem('auth_token');
       const params = new URLSearchParams();
-      if (activeCategory !== 'Všetky') params.append('category', activeCategory);
+      // Odstránené pridávanie category parametra
 
       // FIX: tab "Verejné" fetchuje z /public-catalog (procesy VŠETKÝCH userov)
       // tahy "all" a "my" fetchujú z /catalog (len vlastné procesy)
@@ -65,7 +65,7 @@ export default function CatalogPage({ username, onLogout, onLoadModel, onClose }
     } finally {
       setLoading(false);
     }
-  }, [activeCategory, activeTab]);
+  }, [activeTab]); // <-- activeCategory tu už nie je potrebná
 
   useEffect(() => { fetchItems(); }, [fetchItems]);
 
@@ -84,6 +84,31 @@ export default function CatalogPage({ username, onLogout, onLoadModel, onClose }
       alert('Vymazanie zlyhalo.');
     } finally {
       setDeletingId(null);
+    }
+  };
+
+  const handleToggleVisibility = async (id, currentIsPublic) => {
+    try {
+      const token = localStorage.getItem('auth_token');
+      const newVisibility = !currentIsPublic;
+
+      const resp = await fetch(`${API}/catalog/${id}/visibility`, {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ is_public: newVisibility })
+      });
+
+      if (!resp.ok) throw new Error('Zmena viditeľnosti zlyhala');
+
+      // Aktualizuj stav priamo v UI bez nutnosti znova načítať celý zoznam
+      setItems(prev => prev.map(item =>
+        item.id === id ? { ...item, is_public: newVisibility } : item
+      ));
+    } catch (e) {
+      alert(e.message);
     }
   };
 
@@ -110,7 +135,7 @@ export default function CatalogPage({ username, onLogout, onLoadModel, onClose }
     onLoadModel(rawNodes, rawEdges, item.prompt || '');
   };
 
-  // Filtrovanie na strane klienta (vyhľadávanie + tab)
+    // Filtrovanie na strane klienta (vyhľadávanie + tab + kategória)
   const filteredItems = items.filter(item => {
     const matchesSearch = !searchQuery ||
       item.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -121,7 +146,10 @@ export default function CatalogPage({ username, onLogout, onLoadModel, onClose }
       activeTab === 'my' ? item.owner === username :
       activeTab === 'public' ? item.is_public : true;
 
-    return matchesSearch && matchesTab;
+    const itemCategory = item.category || 'Iné';
+    const matchesCategory = activeCategory === 'Všetky' ? true : itemCategory === activeCategory;
+
+    return matchesSearch && matchesTab && matchesCategory;
   });
 
   const formatDate = (dateStr) => {
@@ -204,35 +232,38 @@ export default function CatalogPage({ username, onLogout, onLoadModel, onClose }
 
         {/* Obsah */}
         {loading ? (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '16px' }}>
-            {[1,2,3,4].map(i => (
-              <div key={i} style={{ backgroundColor: '#fff', borderRadius: '12px', padding: '20px', boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
-                <div style={{ height: '20px', backgroundColor: '#e2e8f0', borderRadius: '4px', marginBottom: '12px', animation: 'pulse 1.5s infinite' }} />
-                <div style={{ height: '14px', backgroundColor: '#e2e8f0', borderRadius: '4px', width: '70%', marginBottom: '8px' }} />
-                <div style={{ height: '14px', backgroundColor: '#e2e8f0', borderRadius: '4px', width: '50%' }} />
-              </div>
-            ))}
-          </div>
-        ) : error ? (
-          <div style={{ textAlign: 'center', padding: '60px 20px', color: '#ef4444' }}>
-            <div style={{ fontSize: '40px', marginBottom: '12px' }}>⚠️</div>
-            <p style={{ fontWeight: '600' }}>Chyba pri načítaní</p>
-            <p style={{ color: '#94a3b8', fontSize: '14px' }}>{error}</p>
-            <button onClick={fetchItems} style={{ marginTop: '16px', padding: '8px 20px', backgroundColor: '#6366f1', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '600' }}>
-              Skúsiť znova
-            </button>
-          </div>
-        ) : filteredItems.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '80px 20px', color: '#94a3b8' }}>
-            <div style={{ fontSize: '48px', marginBottom: '16px' }}>📂</div>
-            <h3 style={{ color: '#475569', marginBottom: '8px', fontWeight: '600' }}>Žiadne diagramy</h3>
-            <p style={{ fontSize: '14px', maxWidth: '300px', margin: '0 auto' }}>
-              {searchQuery ? `Žiadny výsledok pre „${searchQuery}"` : 'V tejto kategórii nie sú žiadne uložené diagramy.'}
-            </p>
-          </div>
-        ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '16px' }}>
-            {filteredItems.map(item => (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '16px' }}>
+          {[1,2,3,4].map(i => (
+            <div key={i} style={{ backgroundColor: '#fff', borderRadius: '12px', padding: '20px', boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
+              <div style={{ height: '20px', backgroundColor: '#e2e8f0', borderRadius: '4px', marginBottom: '12px', animation: 'pulse 1.5s infinite' }} />
+              <div style={{ height: '14px', backgroundColor: '#e2e8f0', borderRadius: '4px', width: '70%', marginBottom: '8px' }} />
+              <div style={{ height: '14px', backgroundColor: '#e2e8f0', borderRadius: '4px', width: '50%' }} />
+            </div>
+          ))}
+        </div>
+      ) : error ? (
+        <div style={{ textAlign: 'center', padding: '60px 20px', color: '#ef4444' }}>
+          <div style={{ fontSize: '40px', marginBottom: '12px' }}>⚠️</div>
+          <p style={{ fontWeight: '600' }}>Chyba pri načítaní</p>
+          <p style={{ color: '#94a3b8', fontSize: '14px' }}>{error}</p>
+          <button onClick={fetchItems} style={{ marginTop: '16px', padding: '8px 20px', backgroundColor: '#6366f1', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '600' }}>
+            Skúsiť znova
+          </button>
+        </div>
+      ) : filteredItems.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: '80px 20px', color: '#94a3b8' }}>
+          <div style={{ fontSize: '48px', marginBottom: '16px' }}>📂</div>
+          <h3 style={{ color: '#475569', marginBottom: '8px', fontWeight: '600' }}>Žiadne diagramy</h3>
+          <p style={{ fontSize: '14px', maxWidth: '300px', margin: '0 auto' }}>
+            {searchQuery ? `Žiadny výsledok pre „${searchQuery}"` : 'V tejto kategórii nie sú žiadne uložené diagramy.'}
+          </p>
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '16px' }}>
+          {filteredItems.map(item => {
+            const isOwner = item.owner === username; // Kontrola, či je používateľ vlastníkom
+
+            return (
               <div key={item.id} style={{
                 backgroundColor: '#ffffff', borderRadius: '12px', padding: '20px',
                 boxShadow: '0 1px 4px rgba(0,0,0,0.06)', border: '1px solid #e2e8f0',
@@ -249,14 +280,31 @@ export default function CatalogPage({ username, onLogout, onLoadModel, onClose }
                   </h3>
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px', flexShrink: 0 }}>
                     <CategoryBadge category={item.category || 'Iné'} />
-                    <span style={{
-                      fontSize: '10px', fontWeight: '600', padding: '2px 8px', borderRadius: '9999px',
-                      backgroundColor: item.is_public ? '#dcfce7' : '#f1f5f9',
-                      color: item.is_public ? '#166534' : '#64748b',
-                      border: `1px solid ${item.is_public ? '#bbf7d0' : '#e2e8f0'}`
-                    }}>
+
+                    {/* Tlačidlo pre zmenu viditeľnosti */}
+                    <button
+                      onClick={() => isOwner ? handleToggleVisibility(item.id, item.is_public) : null}
+                      disabled={!isOwner}
+                      title={isOwner ? "Klikni pre zmenu viditeľnosti" : "Nemáš práva na zmenu"}
+                      style={{
+                        fontSize: '10px',
+                        fontWeight: '600',
+                        padding: '3px 8px',
+                        borderRadius: '9999px',
+                        cursor: isOwner ? 'pointer' : 'default',
+                        backgroundColor: item.is_public ? '#dcfce7' : '#ffedd5', // Zelená pre verejné, Oranžová pre súkromné
+                        color: item.is_public ? '#166534' : '#9a3412',
+                        border: `1px solid ${item.is_public ? '#bbf7d0' : '#fed7aa'}`,
+                        transition: 'opacity 0.2s, transform 0.1s',
+                        outline: 'none',
+                        opacity: !isOwner ? 0.7 : 1 // Jemne stmaviť ak to používateľ nemôže zmeniť
+                      }}
+                      onMouseDown={e => { if(isOwner) e.currentTarget.style.transform = 'scale(0.95)'; }}
+                      onMouseUp={e => { if(isOwner) e.currentTarget.style.transform = 'scale(1)'; }}
+                      onMouseLeave={e => { if(isOwner) e.currentTarget.style.transform = 'scale(1)'; }}
+                    >
                       {item.is_public ? '🌐 Verejný' : '🔒 Súkromný'}
-                    </span>
+                    </button>
                   </div>
                 </div>
 
@@ -289,7 +337,7 @@ export default function CatalogPage({ username, onLogout, onLoadModel, onClose }
                   >
                     ↗ Načítať
                   </button>
-                  {item.owner === username && (
+                  {isOwner && (
                     <button onClick={() => handleDelete(item.id)} disabled={deletingId === item.id} style={{
                       padding: '8px 14px', borderRadius: '8px',
                       border: '1px solid #fecaca', backgroundColor: '#fff',
@@ -305,17 +353,18 @@ export default function CatalogPage({ username, onLogout, onLoadModel, onClose }
                   )}
                 </div>
               </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      <style>{`
-        @keyframes pulse {
-          0%, 100% { opacity: 1; }
-          50% { opacity: 0.5; }
-        }
-      `}</style>
+            );
+          })}
+        </div>
+      )}
     </div>
-  );
+
+    <style>{`
+      @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.5; }
+      }
+    `}</style>
+  </div>
+);
 }

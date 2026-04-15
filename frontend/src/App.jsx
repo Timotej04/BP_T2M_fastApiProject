@@ -109,22 +109,22 @@ function AppModal({ config, onClose }) {
 const TaskNode = ({ data, selected }) => {
   const isDecision = data.isDecision === true;
   const isInvalid = data.isInvalid === true;
-  const strokeColor = selected ? COLORS.accent : (isInvalid ? COLORS.danger : (isDecision ? '#818cf8' : '#cbd5e1'));
-  const fillColor = isInvalid ? '#fef2f2' : (isDecision ? '#fdfeef' : '#ffffff');
-  const hasKpi = !isDecision && (data.durationMinutes || data.costEuros);
+  const strokeColor = selected ? COLORS.accent : isInvalid ? COLORS.danger : isDecision ? '#818cf8' : '#cbd5e1';
+  const fillColor = isInvalid ? '#fef2f2' : isDecision ? '#fdfeef' : '#ffffff';
+  const hasKpi = !isDecision && (data.durationMinutes != null || data.costEuros != null);
   const nodeHeight = hasKpi ? NODE_HEIGHT + 22 : NODE_HEIGHT;
 
   return (
     <div style={{ width: NODE_WIDTH, height: isDecision ? DECISION_HEIGHT : nodeHeight, position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: isDecision ? '10px 30px' : '6px 10px' }}>
       <Handle type="target" position={Position.Left} style={{ opacity: 0, width: 10, height: 10, left: isDecision ? 10 : -5 }} />
-      <div style={{ position: 'absolute', inset: 0, zIndex: -1, filter: selected ? 'drop-shadow(0 0 4px #6366f1)' : (isInvalid ? 'drop-shadow(0 0 4px #ef4444)' : 'drop-shadow(0 2px 4px rgba(0,0,0,0.08))') }}>
+      <div style={{ position: 'absolute', inset: 0, zIndex: -1, filter: selected ? 'drop-shadow(0 0 4px #6366f1)' : isInvalid ? 'drop-shadow(0 0 4px #ef4444)' : 'drop-shadow(0 2px 4px rgba(0,0,0,0.08))' }}>
         {isDecision ? (
           <svg width="100%" height="100%" viewBox={`0 0 ${NODE_WIDTH} ${DECISION_HEIGHT}`} preserveAspectRatio="none" style={{ position: 'absolute', inset: 0 }}>
-            <polygon points={`${NODE_WIDTH/2},2 ${NODE_WIDTH-2},${DECISION_HEIGHT/2} ${NODE_WIDTH/2},${DECISION_HEIGHT-2} 2,${DECISION_HEIGHT/2}`} fill={fillColor} stroke={strokeColor} strokeWidth={isInvalid ? "3" : "2"} />
+            <polygon points={`${NODE_WIDTH/2},2 ${NODE_WIDTH-2},${DECISION_HEIGHT/2} ${NODE_WIDTH/2},${DECISION_HEIGHT-2} 2,${DECISION_HEIGHT/2}`} fill={fillColor} stroke={strokeColor} strokeWidth={isInvalid ? 3 : 2} />
           </svg>
         ) : (
           <svg width="100%" height="100%" style={{ position: 'absolute', inset: 0 }}>
-            <rect x="1" y="1" width={NODE_WIDTH-2} height={nodeHeight-2} rx="8" fill={fillColor} stroke={strokeColor} strokeWidth={isInvalid ? "3" : "2"} />
+            <rect x="1" y="1" width={NODE_WIDTH-2} height={nodeHeight-2} rx="8" fill={fillColor} stroke={strokeColor} strokeWidth={isInvalid ? 3 : 2} />
           </svg>
         )}
       </div>
@@ -132,8 +132,12 @@ const TaskNode = ({ data, selected }) => {
         <span>{data.label}</span>
         {hasKpi && (
           <div style={{ display: 'flex', gap: '6px', fontSize: '10px', color: '#475569', background: 'rgba(241,245,249,0.95)', padding: '2px 7px', borderRadius: '4px', border: '1px solid #e2e8f0', lineHeight: 1.4, flexWrap: 'wrap', justifyContent: 'center' }}>
-            {data.durationMinutes ? <span title="Odhadovany cas">{Number.isInteger(data.durationMinutes) ? data.durationMinutes : data.durationMinutes.toFixed(1)} min</span> : null}
-            {data.costEuros ? <span title="Odhadovane naklady">{Number.isInteger(data.costEuros) ? data.costEuros : data.costEuros.toFixed(2)} EUR</span> : null}
+            {data.durationMinutes != null ? (
+              <span title="Odhadovaný čas">⏱ {Number.isInteger(data.durationMinutes) ? data.durationMinutes : data.durationMinutes.toFixed(1)} min</span>
+            ) : null}
+            {data.costEuros != null ? (
+              <span title="Odhadované náklady">💶 {Number.isInteger(data.costEuros) ? data.costEuros : data.costEuros.toFixed(2)} EUR</span>
+            ) : null}
           </div>
         )}
       </div>
@@ -167,6 +171,16 @@ const SwimlaneNode = ({ data }) => {
 const nodeTypes = { swimlane: SwimlaneNode, task: TaskNode };
 const makeLabel = (baseLabel, actor, showActors) => actor && showActors ? `${baseLabel} \n(${actor})` : baseLabel;
 const stripLaneProps = (nodes) => nodes.filter((n) => n.type !== 'swimlane').map((n) => ({ ...n, parentNode: undefined, extent: undefined, position: { x: 0, y: 0 } }));
+
+
+async function editDiagramFromText(instruction, currentModel) {
+  const response = await fetch(`${API}/edit-model`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ instruction, current_model: currentModel }),
+  });
+  if (!response.ok) throw new Error('AI API zlyhalo pri úprave');
+  return response.json();
+}
 
 async function generateDiagramFromText(description, minNodes, maxNodes, includeKpi) {
   const response = await fetch(`${API}/generate-model`, {
@@ -206,6 +220,10 @@ function App() {
   const [showActors, setShowActors] = useState(true);
   const [promptText, setPromptText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+
+  const [copilotPrompt, setCopilotPrompt] = useState('');
+  const [isCopilotLoading, setIsCopilotLoading] = useState(false);
+
   const [minNodes, setMinNodes] = useState(4);
   const [maxNodes, setMaxNodes] = useState(8);
   const [includeKpi, setIncludeKpi] = useState(false);
@@ -257,25 +275,45 @@ function App() {
     showModal({ type: 'confirm', title, message: msg, confirmLabel, cancelLabel, danger });
 
   // ─ História Undo/Redo ──────────────────────────────────────────────
-  const histRef = useRef([]);
-  const histIdxRef = useRef(-1);
+  const histRef = useRef([{ nodes: [], edges: [] }]);
+  const histIdxRef = useRef(0);
   const saveHistory = useCallback((ns, es) => {
+    // Vyčistíme UI stavy, ktoré nemajú ovplyvňovať krok vpred/vzad
+    const cleanNodes = (items) => items.map(({ selected, dragging, positionAbsolute, ...rest }) => rest);
+
+    if (histRef.current.length > 0 && histIdxRef.current >= 0) {
+      const current = histRef.current[histIdxRef.current];
+      // Ak sa diagram nezmenil (napr. len kliknutie na uzol), neukladáme do histórie
+      if (JSON.stringify(cleanNodes(current.nodes)) === JSON.stringify(cleanNodes(ns)) &&
+          JSON.stringify(current.edges) === JSON.stringify(es)) {
+        return;
+      }
+    }
+
     histRef.current = histRef.current.slice(0, histIdxRef.current + 1);
-    histRef.current.push({ nodes: ns, edges: es });
-    if (histRef.current.length > 50) histRef.current.shift();
+    histRef.current.push({
+      nodes: JSON.parse(JSON.stringify(ns)),
+      edges: JSON.parse(JSON.stringify(es)),
+    });
+    if (histRef.current.length > 50) {
+      histRef.current.shift();
+    }
     histIdxRef.current = histRef.current.length - 1;
   }, []);
   const undo = useCallback(() => {
     if (histIdxRef.current <= 0) return;
     histIdxRef.current -= 1;
     const s = histRef.current[histIdxRef.current];
-    setNodes(s.nodes); setEdges(s.edges);
+    setNodes(JSON.parse(JSON.stringify(s.nodes)));
+    setEdges(JSON.parse(JSON.stringify(s.edges)));
   }, [setNodes, setEdges]);
+
   const redo = useCallback(() => {
     if (histIdxRef.current >= histRef.current.length - 1) return;
     histIdxRef.current += 1;
     const s = histRef.current[histIdxRef.current];
-    setNodes(s.nodes); setEdges(s.edges);
+    setNodes(JSON.parse(JSON.stringify(s.nodes)));
+    setEdges(JSON.parse(JSON.stringify(s.edges)));
   }, [setNodes, setEdges]);
   useEffect(() => {
     const h = (e) => {
@@ -315,7 +353,6 @@ function App() {
         const r1 = await modalPrompt('Podmienka pre PRVU cestu (napr. Nie):', 'Nie', 'Nie');
         if (r1 === null) return;
         firstEdgeLabelUpdates[firstEdge.id] = r1.trim() || 'Možnosť 1';
-        firstEdgeLabelUpdates[firstEdge.id] = fl;
       }
     } else if (currentCount > 1) {
       const rn = await modalPrompt('Podmienka pre novú cestu:', `Možnosť ${currentCount + 1}`, `Možnosť ${currentCount + 1}`);
@@ -323,21 +360,18 @@ function App() {
       newEdgeLabel = rn.trim() || `Možnosť ${currentCount + 1}`;
     }
 
-    setEdges((eds) => {
-      const updated = eds.map(e =>
+      const updatedEdgesBase = edges.map((e) =>
         firstEdgeLabelUpdates[e.id] ? { ...e, label: firstEdgeLabelUpdates[e.id] } : e
       );
-      return addEdge({ ...params, ...edgeOptions, label: newEdgeLabel }, updated);
-    });
+      const nextEdges = addEdge({ ...params, ...edgeOptions, label: newEdgeLabel }, updatedEdgesBase);
+      const nextNodes = currentCount >= 1
+        ? nodes.map((n) => n.id === params.source ? { ...n, data: { ...n.data, isDecision: true } } : n)
+        : nodes;
 
-    if (currentCount >= 1) {
-      setNodes((nds) =>
-        nds.map(n =>
-          n.id === params.source ? { ...n, data: { ...n.data, isDecision: true } } : n
-        )
-      );
-    }
-  }, [edges, setEdges, setNodes, edgeOptions]);
+      setEdges(nextEdges);
+      setNodes(nextNodes);
+      saveHistory(nextNodes, nextEdges);
+  }, [edges, nodes, setEdges, setNodes, edgeOptions]);
 
   const onSelectionChange = useCallback(({ nodes: sel }) => {
     const nonLane = sel?.find((n) => n.type !== 'swimlane');
@@ -429,8 +463,8 @@ function App() {
           actor: node.actor || '', 
           nodeType: node.type || 'task', 
           isDecision: (outgoingCounts[node.id] || 0) > 1,
-          durationMinutes: node.duration_minutes || null,
-          costEuros: node.cost_euros || null
+          durationMinutes: node.duration_minutes ?? null,
+          costEuros: node.cost_euros ?? null,
         },
         position: { x: 0, y: 0 },
       }));
@@ -451,8 +485,23 @@ function App() {
 
   const executeSaveToCatalog = async () => {
     if (taskNodes.length === 0) { await modalAlert('Nie je čo uložiť.', 'Prázdny diagram'); return; }
+
+    // KONTROLA LINTERA: Majú nejaké uzly chybu?
+    const hasErrors = taskNodes.some((n) => n.data.isInvalid);
+    if (hasErrors) {
+      const proceed = await modalConfirm(
+        'Váš diagram obsahuje logické chyby (slepé uličky alebo chýbajúce vstupy). Chcete ho napriek tomu uložiť?',
+        'Upozornenie: Chybné prepojenia',
+        'Ignorovať a pokračovať',
+        'Vrátiť sa k úpravám',
+        true // Váš parameter pre danger dizajn (napr. červené tlačidlo pre ignorovanie)
+      );
+      if (!proceed) return; // Používateľ vybral "Vrátiť sa k úpravám"
+    }
+
     const title = await modalPrompt('Názov diagramu:', 'napr. Schvaľovanie faktúry');
     if (!title || !title.trim()) return;
+
     const isPublic = await modalConfirm('Chceš diagram zverejniť pre ostatných používateľov?', 'Viditeľnosť diagramu', 'Áno, zverejniť', 'Nie, súkromný');
     const processModel = {
       nodes: taskNodes.map((n) => ({ id: n.id, type: n.data.nodeType || 'task', label: n.data.baseLabel || n.data.label, actor: n.data.actor || null, isDecision: n.data.isDecision || false })),
@@ -487,8 +536,13 @@ function App() {
     if (taskNodes.length === 0) { modalAlert('Diagram je prázdny.'); return; }
     const hasErrors = taskNodes.some(n => n.data.isInvalid);
     if (hasErrors) {
-      const proceed = await modalConfirm('Diagram má chyby. Stiahnuť aj tak?', 'Upozornenie', 'Stiahnuť', 'Zrušiť');
-      if (!proceed) return;
+      const proceed = await modalConfirm(
+      'Diagram má červeným vyznačené neuzavreté kroky alebo chýbajúce vstupné hrany. Chcete napriek tomu stiahnuť BPMN súbor?',
+      'Stiahnutie BPMN s chybami',
+      'Ignorovať a stiahnuť BPMN',
+    'Zrušiť stiahnutie'
+    );
+    if (!proceed) return;
     }
 
     // ── Layout konštanty ─────────────────────────────────────────────────
@@ -831,12 +885,357 @@ function App() {
     setTimeout(() => URL.revokeObjectURL(url), 250);
   };
 
-    // ─ Export diagramu ako obrázok ────────────────────────────────────
-  const handleDownload = (format = 'png') => {
+    // ─ Export diagramu do UML Activity Diagram (XMI 2.1) ───────────────
+  const handleDownloadUml = async () => {
+    if (taskNodes.length === 0) { modalAlert('Diagram je prázdny.'); return; }
+    const hasErrors = taskNodes.some(n => n.data.isInvalid);
+    if (hasErrors) {
+      const proceed = await modalConfirm(
+        'Diagram má červeným vyznačené neuzavreté kroky alebo chýbajúce vstupné hrany. Chcete napriek tomu stiahnuť XMI súbor?',
+        'Stiahnutie XMI s chybami',
+        'Ignorovať a stiahnuť XMI',
+        'Zrušiť stiahnutie'
+      );
+      if (!proceed) return;
+    }
+
+    const esc = s => (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+    let nodesXml = '';
+    taskNodes.forEach(n => {
+      const lbl = esc(n.data.baseLabel || n.data.label || '');
+      const isStart = n.id === 'start' || lbl.toLowerCase().includes('začiatok');
+      const isEnd = n.id === 'end' || lbl.toLowerCase().includes('koniec');
+      let type = 'uml:OpaqueAction';
+      if (isStart) type = 'uml:InitialNode';
+      else if (isEnd) type = 'uml:ActivityFinalNode';
+      else if (n.data.isDecision) type = 'uml:DecisionNode';
+
+      nodesXml += `\n        <node xmi:type="${type}" xmi:id="${n.id}" name="${lbl}" />`;
+    });
+
+    let edgesXml = '';
+    edges.forEach(e => {
+      const lbl = esc(e.label || '');
+      edgesXml += `\n        <edge xmi:type="uml:ControlFlow" xmi:id="${e.id}" source="${e.source}" target="${e.target}" name="${lbl}" />`;
+    });
+
+    const actorOrder = [];
+    const seenActors = new Set();
+    taskNodes.forEach(n => {
+      const a = n.data.actor || 'Bez roly';
+      if (!seenActors.has(a)) { seenActors.add(a); actorOrder.push(a); }
+    });
+
+    let partitionsXml = '';
+    actorOrder.forEach((actor, idx) => {
+      let refs = '';
+      taskNodes.forEach(n => {
+        if ((n.data.actor || 'Bez roly') === actor) {
+          refs += `\n          <node xmi:idref="${n.id}" />`;
+        }
+      });
+      partitionsXml += `\n        <group xmi:type="uml:ActivityPartition" xmi:id="Partition_${idx}" name="${esc(actor)}">${refs}\n        </group>`;
+    });
+
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<xmi:XMI xmi:version="2.1" xmlns:xmi="http://schema.omg.org/spec/XMI/2.1" xmlns:uml="http://www.eclipse.org/uml2/3.0.0/UML">
+  <uml:Model xmi:id="Model_1" name="ProcessModel">
+    <packagedElement xmi:type="uml:Activity" xmi:id="Activity_1" name="ProcessActivity">${nodesXml}${edgesXml}${partitionsXml}
+    </packagedElement>
+  </uml:Model>
+</xmi:XMI>`;
+
+    const blob = new Blob([xml], { type: 'text/xml;charset=utf-8' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = 'diagram.xmi';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 250);
+  };
+
+  // ─ Export diagramu do UXF (UMLet) ───────────────────────────────────────
+  const handleDownloadUxf = async () => {
+    if (taskNodes.length === 0) { modalAlert('Diagram je prázdny.'); return; }
+    const hasErrors = taskNodes.some(n => n.data.isInvalid);
+    if (hasErrors) {
+      const proceed = await modalConfirm(
+        'Diagram má červeným vyznačené neuzavreté kroky alebo chýbajúce vstupné hrany. Chcete napriek tomu stiahnuť UXF súbor?',
+        'Stiahnutie UXF s chybami',
+        'Ignorovať a stiahnuť UXF',
+        'Zrušiť stiahnutie'
+      );
+      if (!proceed) return;
+    }
+
+    // ── Layout konštanty a Kahn BFS (Kopírujeme logiku z BPMN) ───────────
+    const POOL_LABEL_W = 30;
+    const LANE_LABEL_W = 30;
+    const HEADER_W     = POOL_LABEL_W + LANE_LABEL_W;
+    const COL_W        = 200;
+    const ROW_H        = 140;
+    const NODE_W       = 120;
+    const NODE_H       = 60;
+    const GW_SIZE      = 50;
+    const SE_SIZE      = 36;
+    const PAD_X        = 40;
+    const POOL_X       = 80;
+    const POOL_Y       = 80;
+
+    const actorOrder = [];
+    const seenActors = new Set();
+    taskNodes.forEach(n => {
+      const a = n.data.actor || 'Bez roly';
+      if (!seenActors.has(a)) { seenActors.add(a); actorOrder.push(a); }
+    });
+    const laneCount = actorOrder.length;
+    const laneIdxOf = {};
+    actorOrder.forEach((a, i) => { laneIdxOf[a] = i; });
+
+    const outMap = {};
+    const inMap = {};
+    taskNodes.forEach(n => { outMap[n.id] = []; inMap[n.id] = []; });
+    edges.forEach(e => {
+      if (outMap[e.source]) outMap[e.source].push(e.target);
+      if (inMap[e.target]) inMap[e.target].push(e.source);
+    });
+
+    const visited = new Set();
+    const visiting = new Set();
+    const backEdges = new Set();
+    const dfs = (u) => {
+      visited.add(u);
+      visiting.add(u);
+      (outMap[u] || []).forEach(v => {
+        if (visiting.has(v)) backEdges.add(u + '->' + v);
+        else if (!visited.has(v)) dfs(v);
+      });
+      visiting.delete(u);
+    };
+    const sortedByIn = [...taskNodes].sort((a, b) => inMap[a.id].length - inMap[b.id].length);
+    sortedByIn.forEach(n => { if (!visited.has(n.id)) dfs(n.id); });
+
+    const dagInDeg = {};
+    const dagOutMap = {};
+    taskNodes.forEach(n => { dagInDeg[n.id] = 0; dagOutMap[n.id] = []; });
+    edges.forEach(e => {
+      if (!backEdges.has(e.source + '->' + e.target)) {
+        if (dagOutMap[e.source]) dagOutMap[e.source].push(e.target);
+        if (dagInDeg[e.target] !== undefined) dagInDeg[e.target]++;
+      }
+    });
+
+    const col = {};
+    const bfsQ = taskNodes.filter(n => dagInDeg[n.id] === 0).map(n => n.id);
+    bfsQ.forEach(id => { col[id] = 0; });
+    const proc = [...bfsQ];
+    while (proc.length > 0) {
+      const cur = proc.shift();
+      (dagOutMap[cur] || []).forEach(nxt => {
+        col[nxt] = Math.max(col[nxt] || 0, (col[cur] || 0) + 1);
+        dagInDeg[nxt]--;
+        if (dagInDeg[nxt] === 0) proc.push(nxt);
+      });
+    }
+    taskNodes.forEach(n => { if (col[n.id] === undefined) col[n.id] = 0; });
+
+    for (let iter = 0; iter < 50; iter++) {
+      let changed = false;
+      edges.forEach(e => {
+        const cs = col[e.source];
+        const ct = col[e.target];
+        const isBackEdge = backEdges.has(e.source + '->' + e.target);
+        if (!isBackEdge && cs !== undefined && ct !== undefined && ct <= cs) {
+          col[e.target] = cs + 1;
+          changed = true;
+        }
+      });
+      const colUsed = {};
+      taskNodes.slice().sort((a, b) => (col[a.id] || 0) - (col[b.id] || 0)).forEach(n => {
+        let c = col[n.id] || 0;
+        const startC = c;
+        while (colUsed[c]) c++;
+        if (c !== startC) { col[n.id] = c; changed = true; }
+        colUsed[c] = true;
+      });
+      if (!changed) break;
+    }
+
+    const maxCol = Math.max(0, ...taskNodes.map(n => col[n.id] || 0));
+    const contentW = PAD_X + (maxCol + 1) * COL_W + PAD_X;
+    const laneW = Math.max(LANE_LABEL_W + contentW, 800);
+
+    const isStartNode = n => n.id === 'start' || (n.data.baseLabel || n.data.label || '').toLowerCase().includes('začiatok');
+    const isEndNode   = n => n.id === 'end'   || (n.data.baseLabel || n.data.label || '').toLowerCase().includes('koniec');
+    const nodeSize    = n => {
+      if (isStartNode(n) || isEndNode(n)) return { w: SE_SIZE, h: SE_SIZE };
+      if (n.data.isDecision)               return { w: GW_SIZE, h: GW_SIZE };
+      return { w: NODE_W, h: NODE_H };
+    };
+
+    const nodePos = {};
+    taskNodes.forEach(n => {
+      const li = laneIdxOf[n.data.actor || 'Bez roly'] ?? 0;
+      const { w, h } = nodeSize(n);
+      const cx = POOL_X + HEADER_W + PAD_X + (col[n.id] || 0) * COL_W + NODE_W / 2;
+      const cy = POOL_Y + li * ROW_H + ROW_H / 2;
+      nodePos[n.id] = { x: Math.round(cx - w / 2), y: Math.round(cy - h / 2), w, h, cx: Math.round(cx), cy: Math.round(cy) };
+    });
+
+    const esc = s => (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+    // ── UXF XML generovanie ─────────────────────────────────────────────
+    let elementsXml = '';
+
+    // Swimlanes
+    actorOrder.forEach((actor, idx) => {
+      elementsXml += `\n  <element>
+    <id>UMLGeneric</id>
+    <coordinates><x>${POOL_X}</x><y>${POOL_Y + idx * ROW_H}</y><w>${laneW}</w><h>${ROW_H}</h></coordinates>
+    <panel_attributes>halign=left\nvalign=center\n${esc(actor)}</panel_attributes>
+    <additional_attributes/>
+  </element>`;
+    });
+
+    // Nodes
+    taskNodes.forEach(n => {
+      const { x, y, w, h } = nodePos[n.id];
+      const lbl = esc(n.data.baseLabel || n.data.label || '');
+      let idType = 'UMLState';
+      let panelAttrs = lbl;
+
+      let textElement = '';
+      if (isStartNode(n)) {
+        idType = 'UMLSpecialState';
+        panelAttrs = 'type=initial';
+      } else if (isEndNode(n)) {
+        idType = 'UMLSpecialState';
+        panelAttrs = 'type=final';
+      } else if (n.data.isDecision) {
+        idType = 'UMLSpecialState';
+        panelAttrs = 'type=decision';
+      }
+
+      // Pre špeciálne uzly pridáme extra textový element, lebo UMLet nepodporuje text vnútri diamantu/kruhu
+      if (idType === 'UMLSpecialState' && lbl) {
+        textElement = `\n  <element>
+    <id>Text</id>
+    <coordinates><x>${x + w/2 - 70}</x><y>${y + h + 5}</y><w>140</w><h>60</h></coordinates>
+    <panel_attributes>halign=center\n${lbl}</panel_attributes>
+    <additional_attributes/>
+  </element>`;
+      }
+
+      elementsXml += `\n  <element>
+    <id>${idType}</id>
+    <coordinates><x>${x}</x><y>${y}</y><w>${w}</w><h>${h}</h></coordinates>
+    <panel_attributes>${panelAttrs}</panel_attributes>
+    <additional_attributes/>
+  </element>${textElement}`;
+    });
+
+    // Edges
+    const routeEdgePts = (sc, tc, x1, y1, x2, y2, scRow, tcRow, isBackwards) => {
+      const midGapSource = POOL_X + HEADER_W + PAD_X + sc * COL_W + NODE_W + (COL_W - NODE_W) / 2;
+      const midGapTarget = POOL_X + HEADER_W + PAD_X + (tc - 1) * COL_W + NODE_W + (COL_W - NODE_W) / 2;
+      if (isBackwards) {
+        const outX = x1 + 15;
+        const detourY = Math.round(POOL_Y + scRow * ROW_H + 15);
+        const inX = x2 - 15;
+        return [{x: x1, y: y1}, {x: outX, y: y1}, {x: outX, y: detourY}, {x: inX, y: detourY}, {x: inX, y: y2}, {x: x2, y: y2}];
+      }
+      if (scRow !== tcRow) {
+        if (tc === sc + 1) return [{x: x1, y: y1}, {x: midGapSource, y: y1}, {x: midGapSource, y: y2}, {x: x2, y: y2}];
+        const isGoingDown = tcRow > scRow;
+        const highwayY = isGoingDown ? Math.round(POOL_Y + (scRow + 1) * ROW_H) : Math.round(POOL_Y + scRow * ROW_H);
+        return [{x: x1, y: y1}, {x: midGapSource, y: y1}, {x: midGapSource, y: highwayY}, {x: midGapTarget, y: highwayY}, {x: midGapTarget, y: y2}, {x: x2, y: y2}];
+      }
+      if (scRow === tcRow) {
+        if (tc === sc + 1) return [{x: x1, y: y1}, {x: x2, y: y2}];
+        const detourY = Math.round(POOL_Y + scRow * ROW_H + ROW_H - 10);
+        return [{x: x1, y: y1}, {x: midGapSource, y: y1}, {x: midGapSource, y: detourY}, {x: midGapTarget, y: detourY}, {x: midGapTarget, y: y2}, {x: x2, y: y2}];
+      }
+      return [];
+    };
+
+    edges.forEach(e => {
+      const sn = taskNodes.find(n => n.id === e.source);
+      const tn = taskNodes.find(n => n.id === e.target);
+      if (!sn || !tn) return;
+
+      const sp = nodePos[sn.id];
+      const tp = nodePos[tn.id];
+      const sc = col[sn.id] || 0;
+      const tc = col[tn.id] || 0;
+      const scRow = laneIdxOf[sn.data.actor || 'Bez roly'] ?? 0;
+      const tcRow = laneIdxOf[tn.data.actor || 'Bez roly'] ?? 0;
+      const isBackwards = tc <= sc;
+
+      const x1 = sp.x + sp.w;   const y1 = sp.cy;
+      const x2 = tp.x;          const y2 = tp.cy;
+
+      const pts = routeEdgePts(sc, tc, x1, y1, x2, y2, scRow, tcRow, isBackwards);
+      if (pts.length === 0) return;
+
+      const minX = Math.min(...pts.map(p => p.x));
+      const minY = Math.min(...pts.map(p => p.y));
+      const maxX = Math.max(...pts.map(p => p.x));
+      const maxY = Math.max(...pts.map(p => p.y));
+
+      // UMLet potrebuje padding (w a h nemôžu byť 0, a waypoints by nemali byť na samom okraji)
+      const PAD = 20;
+      const boxX = minX - PAD;
+      const boxY = minY - PAD;
+      const boxW = (maxX - minX) + PAD * 2;
+      const boxH = (maxY - minY) + PAD * 2;
+
+      const addAttrs = pts.map(p => Math.round(p.x - boxX) + '.0;' + Math.round(p.y - boxY) + '.0').join(';');
+      const panelAttr = 'lt=-&gt;' + (e.label ? '\nm1=' + esc(e.label) : '');
+
+      elementsXml += `\n  <element>
+    <id>Relation</id>
+    <coordinates><x>${boxX}</x><y>${boxY}</y><w>${boxW}</w><h>${boxH}</h></coordinates>
+    <panel_attributes>${panelAttr}</panel_attributes>
+    <additional_attributes>${addAttrs}</additional_attributes>
+  </element>`;
+    });
+
+    const xml = `<?xml version="1.0" encoding="UTF-8" standalone="no"?>\n<diagram program="umlet" version="15.0.0">\n  <zoom_level>10</zoom_level>${elementsXml}\n</diagram>`;
+
+    const blob = new Blob([xml], { type: 'text/xml;charset=utf-8' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = 'diagram.uxf';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 250);
+  };
+
+  // ─ Export diagramu ako obrázok ────────────────────────────────────
+  const handleDownload = async (format = 'png') => { // Pridané slovíčko async
     const viewport = document.querySelector('.react-flow__viewport');
     if (!viewport) { modalAlert('Diagram nie je k dispozícii.'); return; }
+
     const allNodes = nodes.filter(n => n.type !== 'swimlane');
     if (allNodes.length === 0) { modalAlert('Diagram je prázdny.'); return; }
+
+    // KONTROLA LINTERA: Pred stiahnutím obrázka
+    const hasErrors = allNodes.some((n) => n.data.isInvalid);
+    if (hasErrors) {
+      const proceed = await modalConfirm(
+        'Diagram má červeným vyznačené neuzavreté kroky. Chcete stiahnuť obrázok aj s týmito chybami?',
+        'Stiahnutie s chybami',
+        'Ignorovať a stiahnuť',
+        'Zrušiť stiahnutie'
+      );
+      if (!proceed) return; // Ukončíme proces sťahovania
+    }
+
     const PADDING = 60;
     const bounds = getRectOfNodes(nodes);
     const imgW = Math.round(bounds.width  + PADDING * 2);
@@ -856,6 +1255,72 @@ function App() {
     const { nodes: laid, edges: laidEdges } = buildSwimLaneLayout([...stripLaneProps(nodes), newNode], edges);
     setNodes(laid); setEdges(laidEdges);
     saveHistory(laid, laidEdges);
+  };
+
+
+  const editDiagramWithAI = async () => {
+    if (!copilotPrompt.trim() || nodes.filter(n => n.type !== 'swimlane').length === 0) return;
+    setIsCopilotLoading(true);
+    try {
+      const currentTasks = nodes.filter((n) => n.type !== 'swimlane');
+      const currentModel = {
+        nodes: currentTasks.map(n => ({
+          id: n.id,
+          type: n.data.nodeType || 'task',
+          label: n.data.baseLabel || n.data.label,
+          actor: n.data.actor || null,
+          duration_minutes: n.data.durationMinutes || null,
+          cost_euros: n.data.costEuros || null,
+        })),
+        edges: edges.map(e => ({
+          id: e.id,
+          source: e.source,
+          target: e.target,
+          label: e.label || null,
+        })),
+      };
+
+      const data = await editDiagramFromText(copilotPrompt, currentModel);
+      if (!data.nodes?.length) throw new Error('AI nevrátila uzly');
+
+      const outgoingCounts = {};
+      data.edges.forEach(e => { outgoingCounts[e.source] = (outgoingCounts[e.source] || 0) + 1; });
+
+      const rawNodes = data.nodes.map(node => ({
+        id: node.id,
+        type: 'task',
+        data: {
+          label: makeLabel(node.label, node.actor || '', showActors),
+          baseLabel: node.label,
+          actor: node.actor || '',
+          nodeType: node.type || 'task',
+          isDecision: (outgoingCounts[node.id] || 0) > 1,
+          durationMinutes: node.duration_minutes || null,
+          costEuros: node.cost_euros || null,
+        },
+        position: { x: 0, y: 0 },
+      }));
+
+      const rawEdges = data.edges.map(edge => ({
+        id: edge.id,
+        source: edge.source,
+        target: edge.target,
+        label: edge.label || null,
+        ...edgeOptions,
+      }));
+
+      setLaneCustomWidth(null);
+      const { nodes: laid, edges: laidEdges } = buildSwimLaneLayout(rawNodes, rawEdges);
+      setNodes(laid);
+      setEdges(laidEdges);
+      saveHistory(laid, laidEdges);
+      setSelectedNodeId(null); setSelectedEdgeId(null);
+      setCopilotPrompt('');
+    } catch (err) {
+      await modalAlert(`Úprava zlyhala: ${err.message}`, 'Chyba');
+    } finally {
+      setIsCopilotLoading(false);
+    }
   };
 
   const renameSelectedNode = async () => {
@@ -925,25 +1390,30 @@ function App() {
 
     setLaneCustomWidth(null);
     const { nodes: laid, edges: laidEdges } = buildSwimLaneLayout(updatedNodes, remainingEdges);
-    setNodes(laid); setEdges(laidEdges); setSelectedNodeId(null);
+    setNodes(laid); setEdges(laidEdges);
+    saveHistory(laid, laidEdges);
+    setSelectedNodeId(null);
   };
 
   const deleteSelectedEdge = () => {
     if (!selectedEdgeId) return;
-    const edgeToDelete = edges.find(e => e.id === selectedEdgeId);
+    const edgeToDelete = edges.find((e) => e.id === selectedEdgeId);
     const sourceNodeId = edgeToDelete?.source;
     const remainingEdges = edges.filter((e) => e.id !== selectedEdgeId);
 
+    let updatedNodes = nodes;
     if (sourceNodeId) {
-      const remainingOut = remainingEdges.filter(e => e.source === sourceNodeId).length;
+      const remainingOut = remainingEdges.filter((e) => e.source === sourceNodeId).length;
       if (remainingOut <= 1) {
-        setNodes((nds) => nds.map(n =>
+        updatedNodes = nodes.map((n) =>
           n.id === sourceNodeId ? { ...n, data: { ...n.data, isDecision: false } } : n
-        ));
+        );
       }
     }
 
+    setNodes(updatedNodes);
     setEdges(remainingEdges);
+    saveHistory(updatedNodes, remainingEdges);
     setSelectedEdgeId(null);
   };
 
@@ -1039,6 +1509,27 @@ function App() {
             <SidebarButton icon={Icons.Generate} label={isLoading ? 'Generujem...' : 'Generovať model'} onClick={loadModel} disabled={isLoading || !promptText.trim()} variant="primary" fullWidth />
           </div>
 
+
+          {/* AI Copilot – úprava diagramu */}
+          <div style={{ background: COLORS.sidebarCard, padding: '16px', borderRadius: '12px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <div style={{ fontSize: '12px', fontWeight: '600', textTransform: 'uppercase', color: COLORS.textMuted, letterSpacing: '1px' }}>AI Copilot – úprava</div>
+            <div style={{ fontSize: '11px', color: COLORS.textMuted, lineHeight: '1.5' }}>Povedz AI čo chceš zmeniť v existujúcom diagrame.</div>
+            <textarea
+              placeholder='napr. "Pridaj krok schválenia manažérom medzi A a B"'
+              value={copilotPrompt}
+              onChange={(e) => setCopilotPrompt(e.target.value)}
+              style={{ width: '100%', minHeight: '80px', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(0,0,0,0.2)', color: '#fff', fontSize: '13px', resize: 'vertical', outline: 'none' }}
+            />
+            <SidebarButton
+              icon={Icons.Edit}
+              label={isCopilotLoading ? 'Upravujem...' : 'Upraviť diagram (AI)'}
+              onClick={editDiagramWithAI}
+              disabled={isCopilotLoading || !copilotPrompt.trim()}
+              variant="success"
+              fullWidth
+            />
+          </div>
+
           {/* Úprava uzlov */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
             <div style={{ fontSize: '12px', fontWeight: '600', textTransform: 'uppercase', color: COLORS.textMuted, letterSpacing: '1px', marginBottom: '4px' }}>Úprava uzlov</div>
@@ -1126,6 +1617,20 @@ function App() {
               >
                 <Icons.Bpmn /> BPMN
               </button>
+              <button
+                onClick={handleDownloadUml}
+                title="Stiahnuť ako UML (XMI)"
+                style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', padding: '8px', background: '#6b21a8', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '12px', fontWeight: 600 }}
+              >
+                <Icons.Download /> XMI
+              </button>
+              <button
+                onClick={handleDownloadUxf}
+                title="Stiahnuť ako UMLet (UXF)"
+                style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', padding: '8px', background: '#9d174d', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '12px', fontWeight: 600 }}
+              >
+                <Icons.Download /> UXF
+              </button>
             </div>
           </div>
 
@@ -1137,6 +1642,7 @@ function App() {
         <ReactFlow
           nodes={nodes} edges={edges} nodeTypes={nodeTypes}
           onNodesChange={onNodesChange} onEdgesChange={onEdgesChange}
+          onNodeDragStop={() => saveHistory(nodes, edges)}
           onConnect={onConnect} onSelectionChange={onSelectionChange} onEdgeClick={onEdgeClick}
           connectionLineType={ConnectionLineType.SmoothStep} fitView defaultEdgeOptions={edgeOptions}
         >

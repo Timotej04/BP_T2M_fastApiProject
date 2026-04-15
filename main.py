@@ -70,6 +70,10 @@ class TextInput(BaseModel):
     max_nodes: Optional[int] = 10
     include_kpi: Optional[bool] = False
 
+class EditModelRequest(BaseModel):
+    instruction: str
+    current_model: dict
+
 class CatalogSaveRequest(BaseModel):
     title: str
     prompt: str
@@ -79,6 +83,9 @@ class CatalogSaveRequest(BaseModel):
     model_json: dict
     is_public: bool = False
     category: str = "Iné"
+
+class VisibilityUpdate(BaseModel):
+    is_public: bool
 
 class UserRegister(BaseModel):
     username: str
@@ -192,44 +199,40 @@ def generate_diagram_from_text(description: str, min_nodes: int, max_nodes: int,
     if not GROQ_API_KEY or len(GROQ_API_KEY) < 10:
         return dummy_model("Nastav GROQ_API_KEY v .env")
 
-    kpi_instruction = ""
-    kpi_example = ""
-    if include_kpi:
-        kpi_instruction = "\n8. K uzlom typu 'task' (okrem startEvent a endEvent) PRIDAJ atribúty 'duration_minutes' (odhadovaný čas v minútach, celé číslo) a 'cost_euros' (odhadované náklady v eurách, celé číslo). Pri gateway a eventoch ich NEPRIDÁVAJ!"
-        kpi_example = ', "duration_minutes": 15, "cost_euros": 5'
+    kpi_instruction = """8. Každý uzol typu "task" MUSÍ obsahovať polia "duration_minutes" (celé číslo, odhadovaný čas v minútach) a "cost_euros" (desatinné číslo, odhadované náklady v EUR)...""" if include_kpi else ""
 
     prompt = f"""
-Vytvor JSON model business procesu. Tvojou JEDINOU úlohou je vrátiť syntakticky správny a validný JSON a ABSOLÚTNE ŽIADEN INÝ TEXT.
+    Vytvor JSON model business procesu. Tvojou JEDINOU úlohou je vrátiť syntakticky správny a validný JSON a ABSOLÚTNE ŽIADEN INÝ TEXT.
 
-Štruktúra, ktorú musíš striktne dodržať:
-{{
-  "nodes": [
-    {{"id": "start", "type": "startEvent", "label": "Začiatok procesu"}},
-    {{"id": "t1", "type": "task", "label": "Názov úlohy", "actor": "Rola"{kpi_example}}},
-    {{"id": "gw1", "type": "gateway", "label": "Rozhodnutie?"}},
-    {{"id": "end", "type": "endEvent", "label": "Koniec procesu"}}
-  ],
-  "edges": [
-    {{"id": "e1", "source": "start", "target": "t1"}},
-    {{"id": "e2", "source": "t1", "target": "gw1"}},
-    {{"id": "e3", "source": "gw1", "target": "end", "label": "Áno"}},
-    {{"id": "e4", "source": "gw1", "target": "t1", "label": "Nie"}}
-  ]
-}}
+    Štruktúra, ktorú musíš striktne dodržať:
+    {{
+      "nodes": [
+        {{"id": "start", "type": "startEvent", "label": "Začiatok procesu"}},
+        {{"id": "t1", "type": "task", "label": "Názov úlohy", "actor": "Rola"}},
+        {{"id": "gw1", "type": "gateway", "label": "Rozhodnutie?"}},
+        {{"id": "end", "type": "endEvent", "label": "Koniec procesu"}}
+      ],
+      "edges": [
+        {{"id": "e1", "source": "start", "target": "t1"}},
+        {{"id": "e2", "source": "t1", "target": "gw1"}},
+        {{"id": "e3", "source": "gw1", "target": "end", "label": "Áno"}},
+        {{"id": "e4", "source": "gw1", "target": "t1", "label": "Nie"}}
+      ]
+    }}
 
-PRAVIDLÁ:
-1. MUSÍ to byť len JSON objekt.
-2. Proces má mať medzi 1 startEvent a 1 endEvent približne {min_nodes} až {max_nodes} uzlov typu "task" alebo "gateway".
-3. "actor" je voliteľný.
-4. Každý uzol typu "gateway" MUSÍ mať aspoň 2 odchádzajúce hrany.
-5. KAŽDÁ hrana vychádzajúca z uzla typu "gateway" MUSÍ mať vyplnené pole "label" s konkrétnou podmienkou zodpovedajúcou kontextu procesu (napr. "Áno"/"Nie", "Schválené"/"Zamietnuté"). Nikdy nepoužívaj generické "Možnosť 1" / "Možnosť 2".
-6. Hrany medzi bežnými "task" uzlami label nepotrebujú.
-7. Posledný element v zoznamoch (nodes, edges) NESMIE mať za sebou čiarku!
+    PRAVIDLÁ:
+    1. MUSÍ to byť len JSON objekt.
+    2. Proces má mať medzi 1 startEvent a 1 endEvent približne {min_nodes} až {max_nodes} uzlov typu "task" alebo "gateway".
+    3. "actor" je voliteľný.
+    4. Každý uzol typu "gateway" MUSÍ mať aspoň 2 odchádzajúce hrany.
+    5. KAŽDÁ hrana vychádzajúca z uzla typu "gateway" MUSÍ mať vyplnené pole "label" s konkrétnou podmienkou zodpovedajúcou kontextu procesu (napr. "Áno"/"Nie", "Schválené"/"Zamietnuté"). Nikdy nepoužívaj generické "Možnosť 1" / "Možnosť 2".
+    6. Hrany medzi bežnými "task" uzlami label nepotrebujú.
+    7. Posledný element v zoznamoch (nodes, edges) NESMIE mať za sebou čiarku!
+    {kpi_instruction}
 
-{kpi_instruction}
-Zadanie procesu:
-{description}
-"""
+    Zadanie procesu:
+    {description}
+    """
 
     try:
         resp = requests.post(
@@ -305,8 +308,8 @@ Zadanie procesu:
                 type=str(n.get("type", "task")),
                 label=str(n.get("label", "Neznáma úloha")),
                 actor=n.get("actor"),
-                duration_minutes=n.get("duration_minutes"),
-                cost_euros=n.get("cost_euros")
+                duration_minutes=n.get("durationminutes") or n.get("duration_minutes"),
+                cost_euros=n.get("costeuros") or n.get("cost_euros"),
             ))
             node_ids.add(node_id)
 
@@ -415,50 +418,56 @@ def save_to_catalog(
         conn.commit()
         return {"id": cursor.lastrowid, "success": True, "category": category}
 
+
 @app.get("/catalog", response_model=List[dict])
-def list_catalog(
-        q: str = Query("", description="Fulltext hľadanie"),
-        category: str = Query("", description="Filter podľa kategórie"),
-        current_user: dict = Depends(get_current_user)
-):
+def list_catalog(q: str = Query(None, description="Fulltext hľadanie"),
+                 category: str = Query(None, description="Filter podľa kategórie"),
+                 current_user: dict = Depends(get_current_user)):
     user_id = current_user["user_id"]
+    is_admin = current_user["username"] == "timo_owner"  # Nastav svoje admin meno
 
     with get_db() as conn:
         cursor = conn.cursor()
 
-        conditions = ["user_id = ?"]
-        params: list = [user_id]
+        # Pridaný alias "p." pre tabuľku processes
+        if is_admin:
+            conditions = ["1=1"]
+            params = []
+        else:
+            conditions = ["p.user_id = ?"]
+            params = [user_id]
 
         if q:
             like = f"%{q}%"
-            conditions.append("(title LIKE ? OR prompt LIKE ? OR model_json LIKE ?)")
+            conditions.append("(p.title LIKE ? OR p.prompt LIKE ? OR p.model_json LIKE ?)")
             params.extend([like, like, like])
 
-        if category and category not in ("", "Všetky"):
-            conditions.append("category = ?")
+        if category and category not in ["", "Všetky"]:
+            conditions.append("p.category = ?")
             params.append(category)
 
         where_clause = " AND ".join(conditions)
-        cursor.execute(
-            f"""
-            SELECT id, title, prompt, min_nodes, max_nodes, final_node_count,
-                   is_public, category, created_at, model_json
-            FROM processes
-            WHERE {where_clause}
-            ORDER BY id DESC
-            """,
-            params,
-        )
-        rows = cursor.fetchall()
 
+        # Pridaný JOIN s tabuľkou users pre získanie u.username
+        cursor.execute(f'''
+            SELECT p.id, p.title, p.prompt, p.min_nodes, p.max_nodes, p.final_node_count, p.is_public, p.category, p.created_at, p.model_json, u.username
+            FROM processes p
+            JOIN users u ON p.user_id = u.id
+            WHERE {where_clause} ORDER BY p.id DESC
+        ''', params)
+
+        rows = cursor.fetchall()
         result = []
         for row in rows:
             r = dict(row)
-            r["username"] = current_user["username"]
-            r["owner"] = current_user["username"]          # ← FIX: pridané owner pole
+
+            # Odstránené natvrdo priradené current_user["username"]
+            # Meno teraz prichádza priamo z databázy (u.username)
+            r["owner"] = r["username"]
+
             if not r.get("category"):
                 r["category"] = "Iné"
-            # ← FIX: parsujeme model_json zo stringu na dict
+
             if isinstance(r.get("model_json"), str):
                 try:
                     r["model_json"] = json.loads(r["model_json"])
@@ -466,32 +475,42 @@ def list_catalog(
                     r["model_json"] = {"nodes": [], "edges": []}
             result.append(r)
 
-        return result
+    return result
+
 
 @app.get("/catalog/{process_id}", response_model=dict)
-def get_process(
-        process_id: int,
-        current_user: dict = Depends(get_current_user)
-):
+def get_process(process_id: int, current_user: dict = Depends(get_current_user)):
     user_id = current_user["user_id"]
+    is_admin = current_user["username"] == "timo_owner"
 
     with get_db() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT * FROM processes WHERE id = ?", (process_id,))
+
+        # Pridaný JOIN na získanie reálneho používateľa
+        cursor.execute('''
+            SELECT p.*, u.username 
+            FROM processes p
+            JOIN users u ON p.user_id = u.id
+            WHERE p.id = ?
+        ''', (process_id,))
         row = cursor.fetchone()
 
         if not row:
-            raise HTTPException(status_code=404, detail=f"Proces #{process_id} neexistuje")
+            raise HTTPException(status_code=404, detail=f"Proces {process_id} neexistuje")
 
-        if row["user_id"] != user_id and not row["is_public"]:
+        # Bezpečnostná kontrola, ktorú admin ignoruje
+        if not is_admin and row["user_id"] != user_id and not row["is_public"]:
             raise HTTPException(status_code=403, detail="Nemáš prístup k tomuto diagramu")
 
         result = dict(row)
         result["model_json"] = json.loads(result["model_json"])
-        result["username"] = current_user["username"]
-        result["owner"] = current_user["username"]
+
+        # Odtiaľto sa prevezme skutočné meno vytvorené v JOIN-e
+        result["owner"] = result["username"]
+
         if not result.get("category"):
             result["category"] = "Iné"
+
         return result
 
 @app.delete("/catalog/{process_id}", response_model=dict)
@@ -517,12 +536,28 @@ def delete_process(
         return {"success": True, "deleted_id": process_id}
 
 
-# ─── AI COPILOT: Úprava existujúceho diagramu ─────────────────
+@app.patch("/catalog/{process_id}/visibility")
+def update_visibility(process_id: int, payload: VisibilityUpdate, current_user: dict = Depends(get_current_user)):
+    user_id = current_user["user_id"]
+    is_admin = current_user["username"] == "timo_owner"  # Ak používaš admina z predošlého kroku
 
-class EditModelRequest(BaseModel):
-    instruction: str
-    current_model: dict
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT user_id FROM processes WHERE id = ?", (process_id,))
+        row = cursor.fetchone()
 
+        if not row:
+            raise HTTPException(status_code=404, detail="Proces neexistuje")
+
+        if not is_admin and row["user_id"] != user_id:
+            raise HTTPException(status_code=403, detail="Môžeš upravovať len svoje diagramy")
+
+        # SQLite ukladá boolean ako 1 alebo 0
+        is_pub_int = 1 if payload.is_public else 0
+        cursor.execute("UPDATE processes SET is_public = ? WHERE id = ?", (is_pub_int, process_id))
+        conn.commit()
+
+        return {"success": True, "is_public": payload.is_public}
 
 def edit_diagram_with_ai(instruction: str, current_model: dict) -> ProcessModel:
     if not GROQ_API_KEY or len(GROQ_API_KEY) < 10:
@@ -577,15 +612,12 @@ PRAVIDLA (MUSI STRIKTNE DODRZIA):
             content = '\n'.join(lines).strip()
 
         diagram = json.loads(content)
-
-        # Zachovame povodne KPI data - ak AI zabudla, doplnime z original
         original_nodes_map = {n["id"]: n for n in current_model.get("nodes", [])}
 
         nodes = []
         node_ids = set()
         for n in diagram.get("nodes", []):
-            if not isinstance(n, dict):
-                continue
+            if not isinstance(n, dict): continue
             nid = str(n.get("id", f"node_{len(nodes)}"))
             orig = original_nodes_map.get(nid, {})
             nodes.append(Node(
@@ -600,8 +632,7 @@ PRAVIDLA (MUSI STRIKTNE DODRZIA):
 
         edges = []
         for e in diagram.get("edges", []):
-            if not isinstance(e, dict):
-                continue
+            if not isinstance(e, dict): continue
             src = str(e.get("source", ""))
             tgt = str(e.get("target", ""))
             if src in node_ids and tgt in node_ids:
@@ -618,11 +649,9 @@ PRAVIDLA (MUSI STRIKTNE DODRZIA):
         print(f"Copilot chyba: {exc}")
         return dummy_model(f"Copilot chyba: {str(exc)[:40]}")
 
-
 @app.post("/edit-model", response_model=ProcessModel)
 def edit_model(input: EditModelRequest) -> ProcessModel:
     return edit_diagram_with_ai(input.instruction, input.current_model)
-
 
 @app.get("/public-catalog", response_model=List[dict])
 def list_public_catalog(
