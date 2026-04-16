@@ -18,13 +18,12 @@ app = FastAPI()
 
 print(">>> Nacitavam main.py (so zabezpecenim + kategoriami + Postgres/SQLite podpora)")
 
+ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173,https://bp-t2-m-fast-api-project.vercel.app")
+origins_list = [origin.strip() for origin in ALLOWED_ORIGINS.split(",")]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",             # pre tvoje lokalne vite
-        "http://127.0.0.1:5173",             # pre tvoje lokalne vite
-        "https://bp-t2-m-fast-api-project.vercel.app"  # TU DAJ SVOJU PRESNU VERCEL ADRESU
-    ],
+    allow_origins=origins_list,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
