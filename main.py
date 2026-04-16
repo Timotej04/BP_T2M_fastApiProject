@@ -49,7 +49,7 @@ class Node(BaseModel):
     label: str
     actor: Optional[str] = None
     duration_minutes: Optional[int] = None
-    cost_euros: Optional[float] = None  # OPRAVENÉ NA FLOAT
+    cost_euros: Optional[float] = None
 
 
 class Edge(BaseModel):
@@ -709,23 +709,22 @@ PRAVIDLA (MUSI STRIKTNE DODRZIA):
 
         if content.startswith("```"):
             lines = content.split('\n')
-            lines = lines[1:] if lines[0].startswith("```") else lines  # OPRAVENÉ Z lines.startswith
-            lines = lines[:-1] if lines and lines[-1].startswith("```") else lines
+            lines = lines[1:] if len(lines) > 0 and lines[0].startswith("```") else lines
+            lines = lines[:-1] if len(lines) > 0 and lines[-1].startswith("```") else lines
             content = '\n'.join(lines).strip()
 
         try:
             diagram = json.loads(content)
-        except json.JSONDecodeError as e:
+        except json.JSONDecodeError:
             start_idx = content.find('{')
             end_idx = content.rfind('}') + 1
-            if start_idx != -1 and end_idx != 0 and start_idx < end_idx:
+            if start_idx != -1 and end_idx > start_idx:
                 diagram = json.loads(content[start_idx:end_idx])
             else:
-                raise e
+                raise ValueError("Groq vratil neplatny JSON")
 
-        # ── Ochrana pred tým, že AI vráti list namiesto dict ──
         if isinstance(diagram, list):
-            diagram = diagram[0] if len(diagram) > 0 and isinstance(diagram[0], dict) else {}  # OPRAVENÉ NA diagram[0]
+            diagram = diagram[0] if len(diagram) > 0 and isinstance(diagram[0], dict) else {}
 
         if not isinstance(diagram, dict):
             raise ValueError(f"Neočakávaný typ odpovede: {type(diagram)}")

@@ -17,7 +17,7 @@ import CatalogPage from './CatalogPage';
 import AuthModal from './AuthModal';
 import { toPng, toJpeg } from 'html-to-image';
 
-const API = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
+const API = import.meta.env.VITE_API_URL || 'https://prompt2flow.onrender.com';
 const NODE_WIDTH = 180;
 const NODE_HEIGHT = 50;
 const DECISION_HEIGHT = 80;
