@@ -690,36 +690,81 @@ PRAVIDLA (MUSI STRIKTNE DODRZIA):
         resp.raise_for_status()
         data = resp.json()
 
-        content = data["choices"]["message"]["content"].strip()
+        # ── ROBUSTNÉ parsovanie odpovede (rovnaké ako v generate_diagram_from_text) ──
+        choices = data.get("choices", [])
+        if not choices:
+            raise ValueError("Groq nevrátil žiadne choices")
+
+        first = choices[0]
+        if isinstance(first, dict):
+            message = first.get("message", {})
+            content = message.get("content", "") if isinstance(message, dict) else str(message)
+        else:
+            content = str(first)
+
+        content = content.strip()
+
         if content.startswith("```"):
             lines = content.split('\n')
-            lines = lines[1:] if lines[0].startswith("```") else lines
+            lines = lines[1:] if lines.startswith("```") else lines
             lines = lines[:-1] if lines and lines[-1].startswith("```") else lines
             content = '\n'.join(lines).strip()
 
-        diagram = json.loads(content)
-        original_nodes_map = {n["id"]: n for n in current_model.get("nodes", [])}
+        try:
+            diagram = json.loads(content)
+        except json.JSONDecodeError as e:
+            start_idx = content.find('{')
+            end_idx = content.rfind('}') + 1
+            if start_idx != -1 and end_idx != 0 and start_idx < end_idx:
+                diagram = json.loads(content[start_idx:end_idx])
+            else:
+                raise e
+
+        # ── Ochrana pred tým, že AI vráti list namiesto dict ──
+        if isinstance(diagram, list):
+            diagram = diagram if diagram and isinstance(diagram, dict) else {}
+
+        if not isinstance(diagram, dict):
+            raise ValueError(f"Neočakávaný typ odpovede: {type(diagram)}")
+
+        # ── Mapa pôvodných uzlov (iba dict položky) ──
+        original_nodes_map = {
+            n["id"]: n
+            for n in current_model.get("nodes", [])
+            if isinstance(n, dict) and "id" in n  # ← KĽÚČOVÁ OCHRANA
+        }
+
+        # ── Spracovanie uzlov (nodes môžu prísť aj ako dict namiesto listu) ──
+        raw_nodes = diagram.get("nodes", [])
+        if not isinstance(raw_nodes, list):
+            raw_nodes = list(raw_nodes.values()) if isinstance(raw_nodes, dict) else []
 
         nodes = []
         node_ids = set()
-        for n in diagram.get("nodes", []):
-            if not isinstance(n, dict): continue
+        for n in raw_nodes:
+            if not isinstance(n, dict):
+                continue
             nid = str(n.get("id", f"node_{len(nodes)}"))
             orig = original_nodes_map.get(nid, {})
             nodes.append(Node(
                 id=nid,
                 type=str(n.get("type", "task")),
-                label=str(n.get("label", "Neznama uloha")),
+                label=str(n.get("label", "Neznáma úloha")),
                 actor=n.get("actor") or orig.get("actor"),
-                duration_minutes=n.get("duration_minutes") if n.get("duration_minutes") is not None else orig.get(
-                    "duration_minutes"),
+                duration_minutes=n.get("duration_minutes") if n.get("duration_minutes") is not None else orig.get("duration_minutes"),
                 cost_euros=n.get("cost_euros") if n.get("cost_euros") is not None else orig.get("cost_euros"),
             ))
             node_ids.add(nid)
 
+        # ── Spracovanie hrán (edges môžu prísť aj ako dict namiesto listu) ──
+        raw_edges = diagram.get("edges", [])
+        if not isinstance(raw_edges, list):
+            raw_edges = list(raw_edges.values()) if isinstance(raw_edges, dict) else []
+
         edges = []
-        for e in diagram.get("edges", []):
-            if not isinstance(e, dict): continue
+        for e in raw_edges:
+            if not isinstance(e, dict):
+                continue
             src = str(e.get("source", ""))
             tgt = str(e.get("target", ""))
             if src in node_ids and tgt in node_ids:
