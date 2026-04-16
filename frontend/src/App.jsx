@@ -38,7 +38,7 @@ const COLORS = {
   laneBorder: '#cbd5e1'
 };
 
-// ── VŠETKY KATEGÓRIE (musí byť rovnaký zoznam ako v backende) ──
+// ── VŠETKY KATEGÓRIE ──
 const CATEGORIES = [
   'HR',
   'IT',
@@ -224,6 +224,8 @@ function App() {
   const [copilotPrompt, setCopilotPrompt] = useState('');
   const [isCopilotLoading, setIsCopilotLoading] = useState(false);
 
+  const [isSavedToCatalog, setIsSavedToCatalog] = useState(false);
+
   const [minNodes, setMinNodes] = useState(4);
   const [maxNodes, setMaxNodes] = useState(8);
   const [includeKpi, setIncludeKpi] = useState(false);
@@ -274,16 +276,23 @@ function App() {
   const modalConfirm = (msg, title = 'Potvrdení', confirmLabel = 'Áno', cancelLabel = 'Nie', danger = false) =>
     showModal({ type: 'confirm', title, message: msg, confirmLabel, cancelLabel, danger });
 
+  const ensureSavedBeforeDownload = async () => {
+    if (isSavedToCatalog) return true;
+
+    await modalAlert(
+      'Pred stiahnutím musíš diagram najprv uložiť do archívu. Môže byť aj súkromný.',
+      'Najprv ulož diagram'
+    );
+    return false;
+  };
   // ─ História Undo/Redo ──────────────────────────────────────────────
   const histRef = useRef([{ nodes: [], edges: [] }]);
   const histIdxRef = useRef(0);
   const saveHistory = useCallback((ns, es) => {
-    // Vyčistíme UI stavy, ktoré nemajú ovplyvňovať krok vpred/vzad
     const cleanNodes = (items) => items.map(({ selected, dragging, positionAbsolute, ...rest }) => rest);
 
     if (histRef.current.length > 0 && histIdxRef.current >= 0) {
       const current = histRef.current[histIdxRef.current];
-      // Ak sa diagram nezmenil (napr. len kliknutie na uzol), neukladáme do histórie
       if (JSON.stringify(cleanNodes(current.nodes)) === JSON.stringify(cleanNodes(ns)) &&
           JSON.stringify(current.edges) === JSON.stringify(es)) {
         return;
@@ -299,6 +308,7 @@ function App() {
       histRef.current.shift();
     }
     histIdxRef.current = histRef.current.length - 1;
+    setIsSavedToCatalog(false);
   }, []);
   const undo = useCallback(() => {
     if (histIdxRef.current <= 0) return;
@@ -336,7 +346,6 @@ function App() {
     labelStyle: { fill: '#1e293b', fontWeight: 600, fontSize: 12 },
   };
 
-  // ── KĽÚČOVÁ OPRAVA: čítame edges PRED zavolaním setEdges ───
   const onConnect = useCallback(async (params) => {
     const currentSourceEdges = edges.filter(e => e.source === params.source);
     const currentCount = currentSourceEdges.length;
@@ -494,9 +503,9 @@ function App() {
         'Upozornenie: Chybné prepojenia',
         'Ignorovať a pokračovať',
         'Vrátiť sa k úpravám',
-        true // Váš parameter pre danger dizajn (napr. červené tlačidlo pre ignorovanie)
+        true
       );
-      if (!proceed) return; // Používateľ vybral "Vrátiť sa k úpravám"
+      if (!proceed) return;
     }
 
     const title = await modalPrompt('Názov diagramu:', 'napr. Schvaľovanie faktúry');
@@ -519,11 +528,12 @@ function App() {
           final_node_count: taskNodes.length,
           model_json: processModel,
           is_public: isPublic,
-          category: selectedCategory,      // ← NOVÉ
+          category: selectedCategory,
         }),
       });
       if (resp.status === 401) { handleLogout(); await modalAlert('Prihlásenie vypršalo. Prihlás sa znova.', 'Relácia vypršala'); return; }
       if (!resp.ok) throw new Error('Ukladanie zlyhalo');
+      setIsSavedToCatalog(true);
       await modalAlert(`Diagram „${title.trim()}“ bol úspešne uložený.`, '✅ Uložené');
     } catch (err) { await modalAlert('Ukladanie zlyhalo. Skús to znova.', 'Chyba'); }
   };
@@ -533,6 +543,9 @@ function App() {
 
   // ─ Export diagramu do BPMN 2.0 XML ────────────────────────────────────
   const handleDownloadBpmn = async () => {
+    const canDownload = await ensureSavedBeforeDownload();
+    if (!canDownload) return;
+
     if (taskNodes.length === 0) { modalAlert('Diagram je prázdny.'); return; }
     const hasErrors = taskNodes.some(n => n.data.isInvalid);
     if (hasErrors) {
@@ -634,7 +647,6 @@ function App() {
       edges.forEach(e => {
         const cs = col[e.source];
         const ct = col[e.target];
-        // Preskočíme spätné hrany (cykly), aby sme nespôsobili nekonečné naťahovanie
         const isBackEdge = backEdges.has(e.source + '->' + e.target);
 
         if (!isBackEdge && cs !== undefined && ct !== undefined && ct <= cs) {
@@ -644,7 +656,6 @@ function App() {
       });
 
       // B) Kolizie GLOBÁLNE V CELOM DIAGRAME
-      // Zabráni procesom byť "nad sebou" aj ked su v inej lane.
       const colUsed = {};
       taskNodes
         .slice()
@@ -652,7 +663,7 @@ function App() {
         .forEach(n => {
           let c = col[n.id] || 0;
           const startC = c;
-          while (colUsed[c]) c++; // Globálna kolízia stĺpca!
+          while (colUsed[c]) c++;
           if (c !== startC) { col[n.id] = c; changed = true; }
           colUsed[c] = true;
         });
@@ -664,7 +675,7 @@ function App() {
     // ── Finalny maxCol a rozmery diagramu ────────────────────────────────
     const maxCol   = Math.max(0, ...taskNodes.map(n => col[n.id] || 0));
     const contentW = PAD_X + (maxCol + 1) * COL_W + PAD_X;
-    const laneW    = Math.max(LANE_LABEL_W + contentW, 800); // aspoň 800px
+    const laneW    = Math.max(LANE_LABEL_W + contentW, 800);
     const totalH   = laneCount * ROW_H;
 
     // ── Pozicie uzlov ────────────────────────────────────────────────────
@@ -759,20 +770,14 @@ function App() {
     });
 
     // ── DI: Hrany (Založené na pravidlách Camunda / BPMN.io) ─────────────
-    // Ak sa ciara vracia dozadu (cyklus), ide VRCHOM / SPODKOM
-    // Ak ide dopredu, ale skace stlpce, tiez sa nesmie prekryvat s uzlami
 
     const routeEdge = (sc, tc, x1, y1, x2, y2, scRow, tcRow, isBackwards) => {
-      // ── MEDZERY ────────────────────────────────────────────────────────
-      // midGapSource = zvislá línia VŽDY ZA stĺpcom source
       const midGapSource = POOL_X + HEADER_W + PAD_X + sc * COL_W + NODE_W + (COL_W - NODE_W) / 2;
-      // midGapTarget = zvislá línia VŽDY PRED stĺpcom target
       const midGapTarget = POOL_X + HEADER_W + PAD_X + (tc - 1) * COL_W + NODE_W + (COL_W - NODE_W) / 2;
 
       // ── 1. BACKWARDS cyklus (šípka ide späť) ───────────────────────────
       if (isBackwards) {
         const outX = x1 + 15;
-        // Obchádzka vrškom lane, aby sa netrafila s doprednými spojmi
         const detourY = Math.round(POOL_Y + scRow * ROW_H + 15);
         const inX = x2 - 15;
 
@@ -786,24 +791,18 @@ function App() {
 
       // ── 2. FORWARDS (rôzne lane) ───────────────────────────────────────
       if (scRow !== tcRow) {
-        // Preskočenie z jednej lane do druhej
-        // Ak target je v ďalšom stĺpci: L-tvar cez midGapSource (nikdy nepretína stĺpce)
         if (tc === sc + 1) {
           return '\n        <di:waypoint x="' + x1 + '" y="' + y1 + '" />'
                + '\n        <di:waypoint x="' + midGapSource + '" y="' + y1 + '" />'
                + '\n        <di:waypoint x="' + midGapSource + '" y="' + y2 + '" />'
                + '\n        <di:waypoint x="' + x2 + '" y="' + y2 + '" />';
         } else {
-          // Ak preskakuje stĺpce, ideme zvislo dole/hore vo vlastnej lane, potom vodorovne popod iné uzly
-          // Cesta: von zo source -> dole na okraj lane -> potiahni sa k target lane cez prázdny priestor -> vlez dnu
 
-          // Zistíme, kadiaľ ísť. Ak targetLane je nižšie, pôjdeme spodkom lane. Ak vyššie, pôjdeme vrškom.
           const isGoingDown = tcRow > scRow;
 
-          // Nájdeme Y súradnicu pre "diaľnicu" (zvislá medzera medzi lanes)
           const highwayY = isGoingDown 
-            ? Math.round(POOL_Y + (scRow + 1) * ROW_H)  // medzera POD source lane
-            : Math.round(POOL_Y + scRow * ROW_H);       // medzera NAD source lane
+            ? Math.round(POOL_Y + (scRow + 1) * ROW_H)
+            : Math.round(POOL_Y + scRow * ROW_H);
 
           return '\n        <di:waypoint x="' + x1 + '" y="' + y1 + '" />'
                + '\n        <di:waypoint x="' + midGapSource + '" y="' + y1 + '" />'
@@ -817,12 +816,10 @@ function App() {
       // ── 3. FORWARDS (rovnaká lane) ─────────────────────────────────────
       if (scRow === tcRow) {
         if (tc === sc + 1) {
-          // Priama čiara
           return '\n        <di:waypoint x="' + x1 + '" y="' + y1 + '" />'
                + '\n        <di:waypoint x="' + x2 + '" y="' + y2 + '" />';
         } else {
-          // Preskakuje stĺpce v rovnakej lane -> ideme spodkom lane (pod uzlami)
-          const detourY = Math.round(POOL_Y + scRow * ROW_H + ROW_H - 10); // úzko pod uzlami na dolnom okraji
+          const detourY = Math.round(POOL_Y + scRow * ROW_H + ROW_H - 10);
 
           return '\n        <di:waypoint x="' + x1 + '" y="' + y1 + '" />'
                + '\n        <di:waypoint x="' + midGapSource + '" y="' + y1 + '" />'
@@ -849,7 +846,7 @@ function App() {
 
       const x1 = sp.x + sp.w;   const y1 = sp.cy;
       const x2 = tp.x;          const y2 = tp.cy;
-      const isBackwards = tc <= sc; // cykly idú do predošlého alebo rovnakého stĺpca
+      const isBackwards = tc <= sc;
 
       const wpts = routeEdge(sc, tc, x1, y1, x2, y2, scRow, tcRow, isBackwards);
       diEdges += '\n      <bpmndi:BPMNEdge id="' + e.id + '_di" bpmnElement="' + e.id + '">' + wpts + '\n      </bpmndi:BPMNEdge>';
@@ -887,6 +884,9 @@ function App() {
 
     // ─ Export diagramu do UML Activity Diagram (XMI 2.1) ───────────────
   const handleDownloadUml = async () => {
+    const canDownload = await ensureSavedBeforeDownload();
+    if (!canDownload) return;
+
     if (taskNodes.length === 0) { modalAlert('Diagram je prázdny.'); return; }
     const hasErrors = taskNodes.some(n => n.data.isInvalid);
     if (hasErrors) {
@@ -959,6 +959,9 @@ function App() {
 
   // ─ Export diagramu do UXF (UMLet) ───────────────────────────────────────
   const handleDownloadUxf = async () => {
+    const canDownload = await ensureSavedBeforeDownload();
+    if (!canDownload) return;
+
     if (taskNodes.length === 0) { modalAlert('Diagram je prázdny.'); return; }
     const hasErrors = taskNodes.some(n => n.data.isInvalid);
     if (hasErrors) {
@@ -1119,7 +1122,6 @@ function App() {
         panelAttrs = 'type=decision';
       }
 
-      // Pre špeciálne uzly pridáme extra textový element, lebo UMLet nepodporuje text vnútri diamantu/kruhu
       if (idType === 'UMLSpecialState' && lbl) {
         textElement = `\n  <element>
     <id>Text</id>
@@ -1185,7 +1187,7 @@ function App() {
       const maxX = Math.max(...pts.map(p => p.x));
       const maxY = Math.max(...pts.map(p => p.y));
 
-      // UMLet potrebuje padding (w a h nemôžu byť 0, a waypoints by nemali byť na samom okraji)
+
       const PAD = 20;
       const boxX = minX - PAD;
       const boxY = minY - PAD;
@@ -1217,7 +1219,10 @@ function App() {
   };
 
   // ─ Export diagramu ako obrázok ────────────────────────────────────
-  const handleDownload = async (format = 'png') => { // Pridané slovíčko async
+  const handleDownload = async (format = 'png') => {
+    const canDownload = await ensureSavedBeforeDownload();
+    if (!canDownload) return;
+
     const viewport = document.querySelector('.react-flow__viewport');
     if (!viewport) { modalAlert('Diagram nie je k dispozícii.'); return; }
 
@@ -1233,7 +1238,7 @@ function App() {
         'Ignorovať a stiahnuť',
         'Zrušiť stiahnutie'
       );
-      if (!proceed) return; // Ukončíme proces sťahovania
+      if (!proceed) return;
     }
 
     const PADDING = 60;
@@ -1438,7 +1443,7 @@ function App() {
         <div style={{ height: '60px', background: COLORS.sidebarBg, color: 'white', display: 'flex', alignItems: 'center', padding: '0 20px', justifyContent: 'space-between', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', zIndex: 10 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
             <button onClick={() => setView('editor')} style={{ background: 'rgba(255,255,255,0.1)', color: 'white', border: 'none', padding: '8px 16px', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}>← Editor</button>
-            <span style={{ fontSize: '18px', fontWeight: 'bold' }}>Proces AI Archív</span>
+            <span style={{ fontSize: '18px', fontWeight: 'bold' }}>Prompt2Flow Katalóg</span>
           </div>
           <div style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
             <span style={{ fontSize: '13px', color: COLORS.textMuted }}>👤 {username}</span>
@@ -1458,6 +1463,7 @@ function App() {
               setLaneCustomWidth(null);
               const { nodes: laid, edges: laidEdges } = buildSwimLaneLayout(nodesWithDecision, loadedEdges);
               setNodes(laid); setEdges(laidEdges); setPromptText(newPrompt); setView('editor');
+              setIsSavedToCatalog(true);
             }}
             onClose={() => setView('editor')} />
         </div>
@@ -1475,7 +1481,7 @@ function App() {
         {/* Hlavička + používateľ */}
         <div style={{ padding: '24px 20px 20px', borderBottom: `1px solid rgba(255,255,255,0.05)` }}>
           <h1 style={{ margin: '0 0 16px 0', fontSize: '20px', fontWeight: '700', letterSpacing: '0.5px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ color: COLORS.accent }}>⚡</span> Process AI
+            <span style={{ color: COLORS.accent }}>⚡</span> Prompt2Flow
           </h1>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(0,0,0,0.2)', padding: '10px 12px', borderRadius: '8px' }}>
             {username ? (
@@ -1600,7 +1606,7 @@ function App() {
               </button>
             </div>
             <SidebarButton icon={Icons.Save} label="Uložiť model" onClick={saveToCatalog} variant="success" fullWidth />
-            <SidebarButton icon={Icons.Folder} label="Otvoriť archív" onClick={openCatalog} fullWidth />
+            <SidebarButton icon={Icons.Folder} label="Otvoriť katalóg" onClick={openCatalog} fullWidth />
             <div style={{display:'flex',gap:'6px'}}>
               <button onClick={()=>handleDownload('png')} title="Stiahnuť celý diagram ako PNG" style={{flex:1,display:'flex',alignItems:'center',justifyContent:'center',gap:'6px',padding:'8px',background:'#312e81',color:'#fff',border:'none',borderRadius:'8px',cursor:'pointer',fontSize:'12px',fontWeight:600}}>
                 <Icons.Download /> PNG

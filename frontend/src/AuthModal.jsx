@@ -48,8 +48,8 @@ function AuthModal({ onClose, onLoginSuccess }) {
   return (
     <div style={{
       position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-      backgroundColor: 'rgba(15, 23, 42, 0.4)', // Tmavé pozadie s jemnou alphou
-      backdropFilter: 'blur(8px)', // Glassmorphism blur na pozadí plátna
+      backgroundColor: 'rgba(15, 23, 42, 0.4)',
+      backdropFilter: 'blur(8px)',
       WebkitBackdropFilter: 'blur(8px)',
       display: 'flex', justifyContent: 'center', alignItems: 'center',
       zIndex: 9999, padding: '20px'

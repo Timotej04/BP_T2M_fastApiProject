@@ -34,7 +34,7 @@ export default function CatalogPage({ username, onLogout, onLoadModel, onClose }
   const [error, setError] = useState(null);
   const [activeCategory, setActiveCategory] = useState('Všetky');
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeTab, setActiveTab] = useState('all'); // 'all' | 'my' | 'public'
+  const [activeTab, setActiveTab] = useState('all');
   const [deletingId, setDeletingId] = useState(null);
 
     const fetchItems = useCallback(async () => {
@@ -43,10 +43,7 @@ export default function CatalogPage({ username, onLogout, onLoadModel, onClose }
     try {
       const token = localStorage.getItem('auth_token');
       const params = new URLSearchParams();
-      // Odstránené pridávanie category parametra
 
-      // FIX: tab "Verejné" fetchuje z /public-catalog (procesy VŠETKÝCH userov)
-      // tahy "all" a "my" fetchujú z /catalog (len vlastné procesy)
       const isPublicTab = activeTab === 'public';
       const url = isPublicTab
         ? `${API}/public-catalog?${params}`
@@ -65,8 +62,7 @@ export default function CatalogPage({ username, onLogout, onLoadModel, onClose }
     } finally {
       setLoading(false);
     }
-  }, [activeTab]); // <-- activeCategory tu už nie je potrebná
-
+  }, [activeTab]);
   useEffect(() => { fetchItems(); }, [fetchItems]);
 
   const handleDelete = async (id) => {
@@ -103,7 +99,6 @@ export default function CatalogPage({ username, onLogout, onLoadModel, onClose }
 
       if (!resp.ok) throw new Error('Zmena viditeľnosti zlyhala');
 
-      // Aktualizuj stav priamo v UI bez nutnosti znova načítať celý zoznam
       setItems(prev => prev.map(item =>
         item.id === id ? { ...item, is_public: newVisibility } : item
       ));
@@ -164,7 +159,7 @@ export default function CatalogPage({ username, onLogout, onLoadModel, onClose }
         {/* Hlavička */}
         <div style={{ marginBottom: '28px' }}>
           <h2 style={{ margin: '0 0 4px 0', fontSize: '24px', fontWeight: '700', color: '#1e1b4b' }}>
-            Archív modelov
+            Katalóg modelov
           </h2>
           <p style={{ margin: 0, color: '#64748b', fontSize: '14px' }}>
             {items.length} uložených diagramov · prihlásený ako <strong>{username}</strong>
@@ -261,7 +256,7 @@ export default function CatalogPage({ username, onLogout, onLoadModel, onClose }
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '16px' }}>
           {filteredItems.map(item => {
-            const isOwner = item.owner === username; // Kontrola, či je používateľ vlastníkom
+            const isOwner = item.owner === username;
 
             return (
               <div key={item.id} style={{
@@ -292,7 +287,7 @@ export default function CatalogPage({ username, onLogout, onLoadModel, onClose }
                         padding: '3px 8px',
                         borderRadius: '9999px',
                         cursor: isOwner ? 'pointer' : 'default',
-                        backgroundColor: item.is_public ? '#dcfce7' : '#ffedd5', // Zelená pre verejné, Oranžová pre súkromné
+                        backgroundColor: item.is_public ? '#dcfce7' : '#ffedd5',
                         color: item.is_public ? '#166534' : '#9a3412',
                         border: `1px solid ${item.is_public ? '#bbf7d0' : '#fed7aa'}`,
                         transition: 'opacity 0.2s, transform 0.1s',
