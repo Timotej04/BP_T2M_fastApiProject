@@ -20,7 +20,11 @@ print(">>> Nacitavam main.py (so zabezpecenim + kategoriami + Postgres/SQLite po
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost:5173",             # pre tvoje lokalne vite
+        "http://127.0.0.1:5173",             # pre tvoje lokalne vite
+        "https://bp-t2-m-fast-api-project.vercel.app"  # TU DAJ SVOJU PRESNU VERCEL ADRESU
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

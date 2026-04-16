@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 
-const API = import.meta.env.VITE_API_URL || 'https://prompt2flow.onrender.com';
+const API = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
 
 const CATEGORIES = ['Všetky', 'HR', 'IT', 'Financie', 'Operácie', 'Marketing', 'Zákaznícky servis', 'Iné'];
 
