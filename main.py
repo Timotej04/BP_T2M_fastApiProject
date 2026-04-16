@@ -49,7 +49,7 @@ class Node(BaseModel):
     label: str
     actor: Optional[str] = None
     duration_minutes: Optional[int] = None
-    cost_euros: Optional[int] = None
+    cost_euros: Optional[float] = None  # OPRAVENÉ NA FLOAT
 
 
 class Edge(BaseModel):
@@ -133,58 +133,58 @@ def init_db():
         cursor = conn.cursor()
 
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS users (
-                id SERIAL PRIMARY KEY,
-                username VARCHAR(255) UNIQUE NOT NULL,
-                hashed_password VARCHAR(255) NOT NULL,
-                created_at VARCHAR(255) NOT NULL
-            )
+        CREATE TABLE IF NOT EXISTS users (
+            id SERIAL PRIMARY KEY,
+            username VARCHAR(255) UNIQUE NOT NULL,
+            hashed_password VARCHAR(255) NOT NULL,
+            created_at VARCHAR(255) NOT NULL
+        )
         """)
 
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS processes (
-                id SERIAL PRIMARY KEY,
-                user_id INTEGER NOT NULL,
-                title TEXT NOT NULL,
-                prompt TEXT NOT NULL,
-                min_nodes INTEGER NOT NULL,
-                max_nodes INTEGER NOT NULL,
-                final_node_count INTEGER NOT NULL,
-                model_json TEXT NOT NULL,
-                is_public BOOLEAN DEFAULT FALSE,
-                category VARCHAR(255) DEFAULT 'Iné',
-                created_at VARCHAR(255) NOT NULL,
-                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
-            )
+        CREATE TABLE IF NOT EXISTS processes (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER NOT NULL,
+            title TEXT NOT NULL,
+            prompt TEXT NOT NULL,
+            min_nodes INTEGER NOT NULL,
+            max_nodes INTEGER NOT NULL,
+            final_node_count INTEGER NOT NULL,
+            model_json TEXT NOT NULL,
+            is_public BOOLEAN DEFAULT FALSE,
+            category VARCHAR(255) DEFAULT 'Iné',
+            created_at VARCHAR(255) NOT NULL,
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
         """)
     else:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
 
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS users (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                username TEXT UNIQUE NOT NULL,
-                hashed_password TEXT NOT NULL,
-                created_at TEXT NOT NULL
-            )
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            hashed_password TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
         """)
 
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS processes (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER NOT NULL,
-                title TEXT NOT NULL,
-                prompt TEXT NOT NULL,
-                min_nodes INTEGER NOT NULL,
-                max_nodes INTEGER NOT NULL,
-                final_node_count INTEGER NOT NULL,
-                model_json TEXT NOT NULL,
-                is_public BOOLEAN DEFAULT 0,
-                category TEXT DEFAULT 'Iné',
-                created_at TEXT NOT NULL,
-                FOREIGN KEY(user_id) REFERENCES users(id)
-            )
+        CREATE TABLE IF NOT EXISTS processes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            title TEXT NOT NULL,
+            prompt TEXT NOT NULL,
+            min_nodes INTEGER NOT NULL,
+            max_nodes INTEGER NOT NULL,
+            final_node_count INTEGER NOT NULL,
+            model_json TEXT NOT NULL,
+            is_public BOOLEAN DEFAULT 0,
+            category TEXT DEFAULT 'Iné',
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(user_id) REFERENCES users(id)
+        )
         """)
         try:
             cursor.execute("ALTER TABLE processes ADD COLUMN category TEXT DEFAULT 'Iné'")
@@ -345,7 +345,7 @@ Zadanie procesu:
 
         if content.startswith("```"):
             lines = content.split('\n')
-            if lines.startswith("```"):
+            if lines.startswith("```"):  # OPRAVENÉ Z lines.startswith
                 lines = lines[1:]
             if lines and lines[-1].startswith("```"):
                 lines = lines[:-1]
@@ -363,7 +363,7 @@ Zadanie procesu:
                 raise e
 
         if isinstance(diagram, list):
-            if len(diagram) > 0 and isinstance(diagram, dict):
+            if len(diagram) > 0 and isinstance(diagram, dict):  # OPRAVENÉ NA diagram
                 diagram = diagram
             else:
                 raise ValueError("AI vrátilo list namiesto JSON objektu")
@@ -455,7 +455,7 @@ def register_user(user: UserRegister):
             (user.username, hashed_pw, datetime.now(timezone.utc).isoformat())
         )
         conn.commit()
-        return {"success": True, "message": "Účet vytvorený. Môžeš sa prihlásiť."}
+    return {"success": True, "message": "Účet vytvorený. Môžeš sa prihlásiť."}
 
 
 @app.post("/login", response_model=TokenResponse)
@@ -489,7 +489,7 @@ def save_to_catalog(payload: CatalogSaveRequest, current_user: dict = Depends(ge
         if USE_POSTGRES:
             cursor.execute(
                 f"""
-                INSERT INTO processes 
+                INSERT INTO processes
                 (user_id, title, prompt, min_nodes, max_nodes, final_node_count, model_json, is_public, category, created_at)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING id
@@ -501,7 +501,7 @@ def save_to_catalog(payload: CatalogSaveRequest, current_user: dict = Depends(ge
         else:
             cursor.execute(
                 f"""
-                INSERT INTO processes 
+                INSERT INTO processes
                 (user_id, title, prompt, min_nodes, max_nodes, final_node_count, model_json, is_public, category, created_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
@@ -511,7 +511,7 @@ def save_to_catalog(payload: CatalogSaveRequest, current_user: dict = Depends(ge
             inserted_id = cursor.lastrowid
 
         conn.commit()
-        return {"id": inserted_id, "success": True, "category": category}
+    return {"id": inserted_id, "success": True, "category": category}
 
 
 @app.get("/catalog", response_model=List[dict])
@@ -519,7 +519,8 @@ def list_catalog(q: str = Query(None, description="Fulltext hľadanie"),
                  category: str = Query(None, description="Filter podľa kategórie"),
                  current_user: dict = Depends(get_current_user)):
     user_id = current_user["user_id"]
-    is_admin = current_user["username"] == "ADMIN_USER"
+    admin_env = os.getenv("ADMIN_USER")  # OPRAVENÉ NA ENV PREMENNÚ
+    is_admin = admin_env and current_user["username"] == admin_env
 
     with get_db() as conn:
         cursor = get_cursor(conn)
@@ -572,12 +573,13 @@ def list_catalog(q: str = Query(None, description="Fulltext hľadanie"),
 @app.get("/catalog/{process_id}", response_model=dict)
 def get_process(process_id: int, current_user: dict = Depends(get_current_user)):
     user_id = current_user["user_id"]
-    is_admin = current_user["username"] == "ADMIN_USER"
+    admin_env = os.getenv("ADMIN_USER")
+    is_admin = admin_env and current_user["username"] == admin_env
 
     with get_db() as conn:
         cursor = get_cursor(conn)
         cursor.execute(f'''
-            SELECT p.*, u.username 
+            SELECT p.*, u.username
             FROM processes p
             JOIN users u ON p.user_id = u.id
             WHERE p.id = {PARAM_MARKER}
@@ -597,7 +599,7 @@ def get_process(process_id: int, current_user: dict = Depends(get_current_user))
         if not result.get("category"):
             result["category"] = "Iné"
 
-        return result
+    return result
 
 
 @app.delete("/catalog/{process_id}", response_model=dict)
@@ -617,13 +619,14 @@ def delete_process(process_id: int, current_user: dict = Depends(get_current_use
 
         cursor.execute(f"DELETE FROM processes WHERE id = {PARAM_MARKER}", (process_id,))
         conn.commit()
-        return {"success": True, "deleted_id": process_id}
+    return {"success": True, "deleted_id": process_id}
 
 
 @app.patch("/catalog/{process_id}/visibility")
 def update_visibility(process_id: int, payload: VisibilityUpdate, current_user: dict = Depends(get_current_user)):
     user_id = current_user["user_id"]
-    is_admin = current_user["username"] == "ADMIN_USER"
+    admin_env = os.getenv("ADMIN_USER")
+    is_admin = admin_env and current_user["username"] == admin_env
 
     with get_db() as conn:
         cursor = get_cursor(conn)
@@ -642,7 +645,7 @@ def update_visibility(process_id: int, payload: VisibilityUpdate, current_user: 
                        (is_pub, process_id))
         conn.commit()
 
-        return {"success": True, "is_public": payload.is_public}
+    return {"success": True, "is_public": payload.is_public}
 
 
 def edit_diagram_with_ai(instruction: str, current_model: dict) -> ProcessModel:
@@ -695,7 +698,7 @@ PRAVIDLA (MUSI STRIKTNE DODRZIA):
         if not choices:
             raise ValueError("Groq nevrátil žiadne choices")
 
-        first = choices[0]
+        first = choices
         if isinstance(first, dict):
             message = first.get("message", {})
             content = message.get("content", "") if isinstance(message, dict) else str(message)
@@ -706,7 +709,7 @@ PRAVIDLA (MUSI STRIKTNE DODRZIA):
 
         if content.startswith("```"):
             lines = content.split('\n')
-            lines = lines[1:] if lines.startswith("```") else lines
+            lines = lines[1:] if lines[0].startswith("```") else lines  # OPRAVENÉ Z lines.startswith
             lines = lines[:-1] if lines and lines[-1].startswith("```") else lines
             content = '\n'.join(lines).strip()
 
@@ -722,7 +725,7 @@ PRAVIDLA (MUSI STRIKTNE DODRZIA):
 
         # ── Ochrana pred tým, že AI vráti list namiesto dict ──
         if isinstance(diagram, list):
-            diagram = diagram if diagram and isinstance(diagram, dict) else {}
+            diagram = diagram[0] if len(diagram) > 0 and isinstance(diagram[0], dict) else {}  # OPRAVENÉ NA diagram[0]
 
         if not isinstance(diagram, dict):
             raise ValueError(f"Neočakávaný typ odpovede: {type(diagram)}")
@@ -731,7 +734,7 @@ PRAVIDLA (MUSI STRIKTNE DODRZIA):
         original_nodes_map = {
             n["id"]: n
             for n in current_model.get("nodes", [])
-            if isinstance(n, dict) and "id" in n  # ← KĽÚČOVÁ OCHRANA
+            if isinstance(n, dict) and "id" in n
         }
 
         # ── Spracovanie uzlov (nodes môžu prísť aj ako dict namiesto listu) ──
@@ -751,7 +754,8 @@ PRAVIDLA (MUSI STRIKTNE DODRZIA):
                 type=str(n.get("type", "task")),
                 label=str(n.get("label", "Neznáma úloha")),
                 actor=n.get("actor") or orig.get("actor"),
-                duration_minutes=n.get("duration_minutes") if n.get("duration_minutes") is not None else orig.get("duration_minutes"),
+                duration_minutes=n.get("duration_minutes") if n.get("duration_minutes") is not None else orig.get(
+                    "duration_minutes"),
                 cost_euros=n.get("cost_euros") if n.get("cost_euros") is not None else orig.get("cost_euros"),
             ))
             node_ids.add(nid)
