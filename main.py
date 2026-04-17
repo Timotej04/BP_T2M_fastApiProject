@@ -23,7 +23,12 @@ origins_list = [origin.strip() for origin in ALLOWED_ORIGINS.split(",")]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins_list,
+    allow_origins=[
+        "http://localhost:5173",
+        "http://localhost:3000",
+        "https://bp-t2-m-fast-api-project.vercel.app"  # ← PRIDAJ TOTO
+        # ak máš vlastnú doménu, pridaj aj ju
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -201,29 +206,37 @@ def init_db():
     print("✅ Databáza inicializovaná")
 
 
+from contextlib import contextmanager
+
 @contextmanager
 def get_db():
-    if USE_POSTGRES:
-        conn = psycopg2.connect(DB_URL)
-        cursor = conn.cursor(cursor_factory=RealDictCursor)
-        conn.row_factory_cursor = cursor
+    if DB_URL:  # ← DB_URL, nie DATABASE_URL
+        conn = psycopg2.connect(DB_URL)  # ← DB_URL
+        conn.autocommit = False
         try:
             yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
         finally:
-            cursor.close()
             conn.close()
     else:
         conn = sqlite3.connect(DB_PATH)
         conn.row_factory = sqlite3.Row
         try:
             yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
         finally:
             conn.close()
 
 
 def get_cursor(conn):
     if USE_POSTGRES:
-        return conn.row_factory_cursor
+        return conn.cursor(cursor_factory=RealDictCursor)  # ← správne pre psycopg2
     else:
         return conn.cursor()
 
