@@ -40,18 +40,20 @@ const COLORS = {
 
 // ── VŠETKY KATEGÓRIE ──
 const CATEGORIES = [
-  'HR',
-  'IT',
-  'Financie',
-  'Operácie',
-  'Marketing',
-  'Zákaznícky servis',
-  'Územné celky',
-  'Šport',
-  'Školstvo',
-  'Právo',
-  'Hospodárstvo',
-  'Iné',
+  "Financie",
+  "Hospodárstvo",
+  "HR",
+  "IT",
+  "Marketing",
+  "Právo",
+  "Služby",
+  "Školstvo",
+  "Šport",
+  "Územné celky",
+  "Zákaznícky servis",
+  "Zdravotníctvo",
+  "Operácie",
+  "Iné",
 ];
 
 const Icons = {
@@ -90,15 +92,42 @@ function AppModal({ config, onClose }) {
   const bd={padding:'8px 20px',background:'#ef4444',color:'#fff',border:'none',borderRadius:'8px',cursor:'pointer',fontSize:'14px',fontWeight:600};
   const inp={width:'100%',padding:'8px 12px',border:'1px solid #cbd5e1',borderRadius:'8px',fontSize:'14px',outline:'none',boxSizing:'border-box',fontFamily:'inherit'};
   return (
-    <div style={ov} onClick={e=>{if(e.target===e.currentTarget)onClose(null);}}>
+    <div style={ov} onClick={e => { if (e.target === e.currentTarget) onClose(null); }}>
       <div style={bx} onKeyDown={onKey}>
-        {config.title   && <p style={{margin:0,fontSize:'16px',fontWeight:700,color:'#1e293b'}}>{config.title}</p>}
-        {config.message && <p style={{margin:0,fontSize:'14px',color:'#475569',lineHeight:1.5}}>{config.message}</p>}
-        {config.type==='prompt' && <input ref={inputRef} style={inp} value={value} onChange={e=>setValue(e.target.value)} placeholder={config.placeholder||''} />}
-        <div style={{display:'flex',gap:'8px',justifyContent:'flex-end'}}>
-          {config.type==='alert'   && <button style={bp} onClick={()=>onClose(true)}>OK</button>}
-          {config.type==='prompt'  && (<><button style={bs} onClick={()=>onClose(null)}>Zrušiť</button><button style={bp} onClick={()=>onClose(value)}>Potvrdiť</button></>)}
-          {config.type==='confirm' && (<><button style={bs} onClick={()=>onClose(false)}>{config.cancelLabel||'Nie'}</button><button style={config.danger?bd:bp} onClick={()=>onClose(true)}>{config.confirmLabel||'Áno'}</button></>)}
+        <p style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#1e293b' }}>{config.title}</p>
+        {config.message && <p style={{ margin: 0, fontSize: '14px', color: '#475569', lineHeight: 1.5 }}>{config.message}</p>}
+
+        {config.type === 'prompt' && (
+          <input ref={inputRef} style={inp} value={value} onChange={e => setValue(e.target.value)} placeholder={config.placeholder} />
+        )}
+
+        {/* NOVÝ select typ */}
+        {config.type === 'select' && (
+          <select
+            value={value}
+            onChange={e => setValue(e.target.value)}
+            style={{ width: '100%', padding: '8px 12px', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '14px', outline: 'none', boxSizing: 'border-box' }}
+          >
+            {config.options.map(opt => (
+              <option key={opt} value={opt}>{opt}</option>
+            ))}
+          </select>
+        )}
+
+        <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+          {config.type === 'alert' && <button style={bp} onClick={() => onClose(true)}>OK</button>}
+          {(config.type === 'prompt' || config.type === 'select') && (
+            <>
+              <button style={bs} onClick={() => onClose(null)}>Zrušiť</button>
+              <button style={bp} onClick={() => onClose(value)}>Potvrdiť</button>
+            </>
+          )}
+          {config.type === 'confirm' && (
+            <>
+              <button style={bs} onClick={() => onClose(false)}>{config.cancelLabel || 'Nie'}</button>
+              <button style={config.danger ? bd : bp} onClick={() => onClose(true)}>{config.confirmLabel || 'Áno'}</button>
+            </>
+          )}
         </div>
       </div>
     </div>
@@ -493,25 +522,37 @@ function App() {
   const onLoginSuccess = (user) => { setUsername(user); setShowAuthModal(false); if (pendingAction) { pendingAction(); setPendingAction(null); } };
 
   const executeSaveToCatalog = async () => {
-    if (taskNodes.length === 0) { await modalAlert('Nie je čo uložiť.', 'Prázdny diagram'); return; }
+  if (taskNodes.length === 0) {
+    await modalAlert("Nie je čo uložiť.", "Prázdny diagram");
+    return;
+  }
 
-    // KONTROLA LINTERA: Majú nejaké uzly chybu?
-    const hasErrors = taskNodes.some((n) => n.data.isInvalid);
-    if (hasErrors) {
-      const proceed = await modalConfirm(
-        'Váš diagram obsahuje logické chyby (slepé uličky alebo chýbajúce vstupy). Chcete ho napriek tomu uložiť?',
-        'Upozornenie: Chybné prepojenia',
-        'Ignorovať a pokračovať',
-        'Vrátiť sa k úpravám',
-        true
-      );
-      if (!proceed) return;
-    }
+  const hasErrors = taskNodes.some(n => n.data.isInvalid);
+  if (hasErrors) {
+    const proceed = await modalConfirm(
+      "Váš diagram obsahuje logické chyby (slepé uličky alebo chýbajúce vstupy). Chcete ho napriek tomu uložiť?",
+      "Upozornenie – Chybné prepojenia", "Ignorovať a pokračovať", "Vrátiť sa k opravám", true
+    );
+    if (!proceed) return;
+  }
 
-    const title = await modalPrompt('Názov diagramu:', 'napr. Schvaľovanie faktúry');
-    if (!title || !title.trim()) return;
+  const title = await modalPrompt("Názov diagramu", "napr. Schvaľovanie faktúry");
+  if (!title || !title.trim()) return;
 
-    const isPublic = await modalConfirm('Chceš diagram zverejniť pre ostatných používateľov?', 'Viditeľnosť diagramu', 'Áno, zverejniť', 'Nie, súkromný');
+  // ── NOVÝ KROK: výber kategórie ──
+  const categoryIndex = await showModal({
+    type: 'select',
+    title: 'Kategória diagramu',
+    message: 'Vyber kategóriu, do ktorej patrí tento proces:',
+    options: CATEGORIES,
+    defaultValue: 'Iné',
+  });
+  const chosenCategory = categoryIndex ?? 'Iné';
+
+  const isPublic = await modalConfirm(
+    "Chceš diagram zverejniť pre ostatných používateľov?",
+    "Viditeľnosť diagramu", "Áno, zverejniť", "Nie, súkromný"
+  );
     const processModel = {
       nodes: taskNodes.map((n) => ({ id: n.id, type: n.data.nodeType || 'task', label: n.data.baseLabel || n.data.label, actor: n.data.actor || null, isDecision: n.data.isDecision || false })),
       edges: edges.map((e) => ({ id: e.id, source: e.source, target: e.target, label: e.label || null })),
@@ -1565,37 +1606,6 @@ function App() {
           {/* Uloženie + Archív */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', paddingTop: '20px', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
 
-            {/* Výber kategórie */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              <div style={{ fontSize: '11px', fontWeight: '600', textTransform: 'uppercase', color: COLORS.textMuted, letterSpacing: '1px' }}>
-                Kategória modelu
-              </div>
-              <select
-                value={selectedCategory}
-                onChange={e => setSelectedCategory(e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '8px 30px 8px 12px',
-                  borderRadius: '8px',
-                  border: '1px solid rgba(255,255,255,0.1)',
-                  background: 'rgba(0,0,0,0.2)',
-                  color: '#fff',
-                  fontSize: '13px',
-                  outline: 'none',
-                  cursor: 'pointer',
-                  appearance: 'none',
-                  backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`,
-                  backgroundRepeat: 'no-repeat',
-                  backgroundPosition: 'right 10px center',
-                }}
-              >
-                {CATEGORIES.map(cat => (
-                  <option key={cat} value={cat} style={{ background: '#1e1b4b', color: '#fff' }}>
-                    {cat}
-                  </option>
-                ))}
-              </select>
-            </div>
 
             <div style={{display:'flex',gap:'6px'}}>
               <button onClick={undo} title="Späť (Ctrl+Z)" style={{flex:1,display:'flex',alignItems:'center',justifyContent:'center',gap:'5px',padding:'8px',background:'#334155',color:'#fff',border:'none',borderRadius:'8px',cursor:'pointer',fontSize:'12px',fontWeight:600}}>

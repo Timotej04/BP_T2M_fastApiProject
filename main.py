@@ -35,9 +35,20 @@ app.add_middleware(
 
 # ─── KATEGÓRIE ────────────────────────────────────────────────
 PREDEFINED_CATEGORIES = [
-    "HR", "IT", "Financie", "Operácie", "Marketing",
-    "Zákaznícky servis", "Územné celky", "Šport",
-    "Školstvo", "Právo", "Hospodárstvo", "Iné",
+  "Financie",
+  "Hospodárstvo",
+  "HR",
+  "IT",
+  "Marketing",
+  "Operácie",
+  "Právo",
+  "Služby",
+  "Školstvo",
+  "Šport",
+  "Územné celky",
+  "Zákaznícky servis",
+  "Zdravotníctvo",
+  "Iné",
 ]
 
 # ─── BEZPEČNOSŤ ───────────────────────────────────────────────
