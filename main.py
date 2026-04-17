@@ -306,7 +306,10 @@ def generate_diagram_from_text(description: str, min_nodes: int, max_nodes: int,
     if not GROQ_API_KEY or len(GROQ_API_KEY) < 10:
         return dummy_model("Nastav GROQ_API_KEY v .env")
 
-    kpi_instruction = """8. Každý uzol typu "task" MUSÍ obsahovať polia "duration_minutes" (celé číslo, odhadovaný čas v minútach) a "cost_euros" (desatinné číslo, odhadované náklady v EUR)...""" if include_kpi else ""
+    kpi_instruction = """8. Každý uzol typu task MUSÍ obsahovať polia:
+       - duration_minutes (celé číslo, odhadovaný čas v MINÚTACH)
+         Príklady: 30 = 30 minút, 480 = 1 pracovný deň, 2400 = 1 týždeň, 10080 = 1 mesiac
+       - cost_euros (desatinné číslo, odhadované náklady v EUR)""" if include_kpi else ""
 
     prompt = f"""
 Vytvor JSON model business procesu. Tvojou JEDINOU úlohou je vrátiť syntakticky správny a validný JSON a ABSOLÚTNE ŽIADEN INÝ TEXT.

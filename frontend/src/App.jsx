@@ -74,15 +74,32 @@ const Icons = {
   Bpmn: () => (<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>)
 };
 
+const DURATION_UNITS = [
+  { label: 'min',  toMin: 1       },
+  { label: 'hod',  toMin: 60      },
+  { label: 'dni',  toMin: 1440     },
+  { label: 'týž',  toMin: 10080    },
+  { label: 'mes',  toMin: 40320   },
+  { label: 'r',    toMin: 483840  },
+];
 
 // ── AppModal – nahradzuje window.prompt / confirm / alert ────────
 function AppModal({ config, onClose }) {
-  const [value, setValue] = useState(config.defaultValue || '');
+  const [value, setValue] = useState(config.defaultValue ?? '');
+  const [durUnit, setDurUnit] = useState('min');
   const inputRef = useRef(null);
   useEffect(() => { if (config.type === 'prompt' && inputRef.current) inputRef.current.focus(); }, [config.type]);
   if (!config) return null;
-  const onKey = (e) => {
-    if (e.key === 'Enter' && config.type !== 'confirm') onClose(value);
+  const onKey = e => {
+    if (e.key === 'Enter' && config.type !== 'confirm') {
+      if (config.type === 'duration') {
+        const num = parseFloat(value);
+        const unit = DURATION_UNITS.find(u => u.label === durUnit);
+        onClose(isNaN(num) || value === '' ? null : String(Math.round(num * unit.toMin)));
+      } else {
+        onClose(value);
+      }
+    }
     if (e.key === 'Escape') onClose(null);
   };
   const ov={position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',zIndex:9999,display:'flex',alignItems:'center',justifyContent:'center'};
@@ -99,6 +116,39 @@ function AppModal({ config, onClose }) {
 
         {config.type === 'prompt' && (
           <input ref={inputRef} style={inp} value={value} onChange={e => setValue(e.target.value)} placeholder={config.placeholder} />
+        )}
+        {config.type === 'duration' && (
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <input
+              ref={inputRef}
+              type="number"
+              min="0"
+              step="any"
+              style={inp}
+              value={value}
+              onChange={e => setValue(e.target.value)}
+              placeholder="napr. 2"
+            />
+            <select
+              value={durUnit}
+              onChange={e => setDurUnit(e.target.value)}
+              style={{
+                padding: '8px 6px',
+                border: '1px solid #cbd5e1',
+                borderRadius: '8px',
+                fontSize: '14px',
+                outline: 'none',
+                background: '#f1f5f9',
+                color: '#1e293b',
+                cursor: 'pointer',
+                minWidth: '60px',
+              }}
+            >
+              {DURATION_UNITS.map(u => (
+                <option key={u.label} value={u.label}>{u.label}</option>
+              ))}
+            </select>
+          </div>
         )}
 
         {/* NOVÝ select typ */}
@@ -117,21 +167,41 @@ function AppModal({ config, onClose }) {
         <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
           {config.type === 'alert' && <button style={bp} onClick={() => onClose(true)}>OK</button>}
           {(config.type === 'prompt' || config.type === 'select') && (
-            <>
-              <button style={bs} onClick={() => onClose(null)}>Zrušiť</button>
-              <button style={bp} onClick={() => onClose(value)}>Potvrdiť</button>
-            </>
+              <>
+                <button style={bs} onClick={() => onClose(null)}>Zrušiť</button>
+                <button style={bp} onClick={() => {
+                  if (config.type === 'duration') {
+                    const num = parseFloat(value);
+                    const unit = DURATION_UNITS.find(u => u.label === durUnit);
+                    onClose(isNaN(num) || value === '' ? null : String(Math.round(num * unit.toMin)));
+                  } else {
+                    onClose(value);
+                  }
+                }}>Potvrdiť
+                </button>
+              </>
           )}
           {config.type === 'confirm' && (
-            <>
-              <button style={bs} onClick={() => onClose(false)}>{config.cancelLabel || 'Nie'}</button>
-              <button style={config.danger ? bd : bp} onClick={() => onClose(true)}>{config.confirmLabel || 'Áno'}</button>
-            </>
+              <>
+                <button style={bs} onClick={() => onClose(false)}>{config.cancelLabel || 'Nie'}</button>
+                <button style={config.danger ? bd : bp}
+                        onClick={() => onClose(true)}>{config.confirmLabel || 'Áno'}</button>
+              </>
           )}
         </div>
       </div>
     </div>
   );
+}
+
+function formatDuration(minutes) {
+  if (minutes === null || minutes === undefined) return null;
+  if (minutes < 60) return `${minutes} min`;
+  if (minutes < 1440) return `${(minutes / 60).toFixed(1).replace(/\.0$/, '')} hod`;   // < 8 hod
+  if (minutes < 10080) return `${(minutes / 1440).toFixed(1).replace(/\.0$/, '')} dni`;  // < 5 dní (8h/deň)
+  if (minutes < 40320) return `${(minutes / 10080).toFixed(1).replace(/\.0$/, '')} týž`; // < 4.2 týž
+  if (minutes < 483840) return `${(minutes / 40320).toFixed(1).replace(/\.0$/, '')} mes`; // < ~10 mes
+  return `${(minutes / 483840).toFixed(1).replace(/\.0$/, '')} r`;  // roky
 }
 
 // ── VLASTNÝ KOMPONENT PRE UZOL ─────────────────────────────
@@ -161,9 +231,9 @@ const TaskNode = ({ data, selected }) => {
         <span>{data.label}</span>
         {hasKpi && (
           <div style={{ display: 'flex', gap: '6px', fontSize: '10px', color: '#475569', background: 'rgba(241,245,249,0.95)', padding: '2px 7px', borderRadius: '4px', border: '1px solid #e2e8f0', lineHeight: 1.4, flexWrap: 'wrap', justifyContent: 'center' }}>
-            {data.durationMinutes != null ? (
-              <span title="Odhadovaný čas">⏱ {Number.isInteger(data.durationMinutes) ? data.durationMinutes : data.durationMinutes.toFixed(1)} min</span>
-            ) : null}
+            {data.durationMinutes != null
+              ? <span title="Odhadovaný čas">⏱ {formatDuration(data.durationMinutes)}</span>
+              : null}
             {data.costEuros != null ? (
               <span title="Odhadované náklady">💶 {Number.isInteger(data.costEuros) ? data.costEuros : data.costEuros.toFixed(2)} EUR</span>
             ) : null}
@@ -770,7 +840,7 @@ function App() {
       const hasCost = n.data.costEuros != null;
       if (et === 'bpmn:task' && (hasDur || hasCost)) {
         let doc = '';
-        if (hasDur)            doc += 'Trvanie: ' + n.data.durationMinutes + ' min';
+        if (hasDur) doc += `Trvanie: ${formatDuration(n.data.durationMinutes)}`;
         if (hasDur && hasCost) doc += ' | ';
         if (hasCost)           doc += 'Naklady: ' + n.data.costEuros + ' EUR';
         bpmnNodes += '\n      <bpmn:documentation>' + doc + '</bpmn:documentation>';
@@ -1393,11 +1463,16 @@ function App() {
     if (!selectedNodeId) return;
     const cur = taskNodes.find(n => n.id === selectedNodeId);
     if (!cur) return;
-    const durStr = await modalPrompt('Trvanie uzla (minuty)', 'napr. 30', cur?.data?.durationMinutes?.toString() || '');
+    const durStr = await showModal({
+      type: 'duration',
+      title: 'Trvanie uzla',
+      message: 'Zadaj hodnotu a vyber jednotku:',
+      defaultValue: '',
+    });
     if (durStr === null) return;
     const costStr = await modalPrompt('Naklady uzla (eura)', 'napr. 50', cur?.data?.costEuros?.toString() || '');
     if (costStr === null) return;
-    const durationMinutes = durStr.trim() ? parseFloat(durStr.trim()) || null : null;
+    const durationMinutes = durStr ? parseInt(durStr, 10) : null;
     const costEuros = costStr.trim() ? parseFloat(costStr.trim()) || null : null;
     const updatedTasks = taskNodes.map(n =>
       n.id === selectedNodeId ? { ...n, data: { ...n.data, durationMinutes, costEuros } } : n
