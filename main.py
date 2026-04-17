@@ -366,8 +366,8 @@ Zadanie procesu:
                 raise e
 
         if isinstance(diagram, list):
-            if len(diagram) > 0 and isinstance(diagram, dict):  # OPRAVENÉ NA diagram
-                diagram = diagram
+            if len(diagram) > 0 and isinstance(diagram[0], dict):
+                diagram = diagram[0]
             else:
                 raise ValueError("AI vrátilo list namiesto JSON objektu")
 
@@ -701,7 +701,7 @@ PRAVIDLA (MUSI STRIKTNE DODRZIA):
         if not choices:
             raise ValueError("Groq nevrátil žiadne choices")
 
-        first = choices
+        first = choices[0]
         if isinstance(first, dict):
             message = first.get("message", {})
             content = message.get("content", "") if isinstance(message, dict) else str(message)
