@@ -2,7 +2,7 @@ fastapi
 uvicorn
 requests
 pyjwt
-passlib
+bcrypt==4.2.1
 bcrypt
 python-dotenv
 pydantic

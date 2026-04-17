@@ -9,7 +9,7 @@ import os
 import json
 import requests
 import jwt
-from passlib.context import CryptContext
+import bcrypt
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -26,8 +26,7 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:5173",
         "http://localhost:3000",
-        "https://bp-t2-m-fast-api-project.vercel.app"  # ← PRIDAJ TOTO
-        # ak máš vlastnú doménu, pridaj aj ju
+        "https://bp-t2-m-fast-api-project.vercel.app",  # ← musí byť tu
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -47,7 +46,6 @@ if not SECRET_KEY:
     raise RuntimeError("❌ JWT_SECRET_KEY nie je nastavený v .env!")
 ALGORITHM = "HS256"
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
 # ─── PYDANTIC MODELY ──────────────────────────────────────────
@@ -236,18 +234,23 @@ def get_db():
 
 def get_cursor(conn):
     if USE_POSTGRES:
-        return conn.cursor(cursor_factory=RealDictCursor)  # ← správne pre psycopg2
+        return conn.cursor(cursor_factory=RealDictCursor)  # ← RealDictCursor musí byť tu
     else:
         return conn.cursor()
 
 
 # ─── AUTH POMOCNÉ FUNKCIE ─────────────────────────────────────
-def verify_password(plain_password, hashed_password):
-    return pwd_context.verify(plain_password, hashed_password)
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    return bcrypt.checkpw(
+        plain_password.encode("utf-8"),
+        hashed_password.encode("utf-8")
+    )
 
-
-def get_password_hash(password):
-    return pwd_context.hash(password)
+def get_password_hash(password: str) -> str:
+    return bcrypt.hashpw(
+        password.encode("utf-8"),
+        bcrypt.gensalt()
+    ).decode("utf-8")
 
 
 def create_access_token(data: dict):
@@ -461,16 +464,18 @@ def read_root():
 def register_user(user: UserRegister):
     with get_db() as conn:
         cursor = get_cursor(conn)
-        cursor.execute(f"SELECT id FROM users WHERE username = {PARAM_MARKER}", (user.username,))
+        cursor.execute(
+            f"SELECT id FROM users WHERE username = {PARAM_MARKER}",
+            (user.username,)
+        )
         if cursor.fetchone():
             raise HTTPException(status_code=400, detail="Používateľské meno už existuje")
-
         hashed_pw = get_password_hash(user.password)
         cursor.execute(
             f"INSERT INTO users (username, hashed_password, created_at) VALUES ({PARAM_MARKER}, {PARAM_MARKER}, {PARAM_MARKER})",
             (user.username, hashed_pw, datetime.now(timezone.utc).isoformat())
         )
-        conn.commit()
+        # ← NEvolaj conn.commit() tu, get_db() ho volá automaticky
     return {"success": True, "message": "Účet vytvorený. Môžeš sa prihlásiť."}
 
 
@@ -478,16 +483,15 @@ def register_user(user: UserRegister):
 def login_user(user: UserLogin):
     with get_db() as conn:
         cursor = get_cursor(conn)
-        cursor.execute(f"SELECT id, username, hashed_password FROM users WHERE username = {PARAM_MARKER}",
-                       (user.username,))
+        cursor.execute(
+            f"SELECT id, username, hashed_password FROM users WHERE username = {PARAM_MARKER}",
+            (user.username,)
+        )
         row = cursor.fetchone()
-
         if not row or not verify_password(user.password, row["hashed_password"]):
             raise HTTPException(status_code=401, detail="Nesprávne meno alebo heslo")
-
         access_token = create_access_token(data={"sub": str(row["id"]), "username": row["username"]})
-        return {"access_token": access_token, "token_type": "bearer", "username": row["username"]}
-
+    return {"access_token": access_token, "token_type": "bearer", "username": row["username"]}
 
 @app.post("/generate-model", response_model=ProcessModel)
 def generate_model(input: TextInput) -> ProcessModel:
