@@ -71,6 +71,13 @@ const Icons = {
   Undo: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 14 4 9 9 4"></polyline><path d="M20 20v-7a4 4 0 0 0-4-4H4"></path></svg>,
   Redo: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 14 20 9 15 4"></polyline><path d="M4 20v-7a4 4 0 0 1 4-4h12"></path></svg>,
   KPI: () => (<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>),
+    Info: () => (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="10"></circle>
+      <line x1="12" y1="16" x2="12" y2="12"></line>
+      <line x1="12" y1="8" x2="12.01" y2="8"></line>
+    </svg>
+  ),
   Bpmn: () => (<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>)
 };
 
@@ -189,6 +196,74 @@ function AppModal({ config, onClose }) {
               </>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+function InfoModal({ onClose }) {
+  const ov = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' };
+  const bx = { background: '#fff', borderRadius: '12px', padding: '28px', maxWidth: '600px', width: '90%', maxHeight: '85vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.3)', display: 'flex', flexDirection: 'column', gap: '20px' };
+  const bp = { padding: '8px 24px', background: '#1e1b4b', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '14px', fontWeight: 600, alignSelf: 'flex-end' };
+
+  return (
+    <div style={ov} onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div style={bx}>
+        <h2 style={{ margin: 0, fontSize: '20px', color: '#1e293b' }}>ℹ️ O nástroji a návod na použitie</h2>
+
+        <div style={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '14px',
+          fontSize: '14px',
+          color: '#475569',
+          lineHeight: 1.6
+        }}>
+          <p style={{margin: 0}}>
+            Tento nástroj slúži na vizualizáciu a modelovanie biznis procesov. Na základe opisu procesu vám umelá
+            inteligencia vytvorí diagram s počtom uzlov vo vami zvolenom rozmedzí a následne ho môžete upravovať
+            manuálne alebo tiež pomocou AI. Diagramy procesov môžete ukladať do katalógu súkromne alebo verejne a
+            zároveň tam môžete nájsť verejné diagramy vytvorené inými ľuďmi.
+          </p>
+
+          <p style={{margin: 0}}>
+            Tento nástroj je vytvorený v rámci bakalárskej práce. Autor je Timotej Jakubov.
+          </p>
+
+          <h3 style={{margin: '8px 0 0 0', color: '#1e293b', fontSize: '16px'}}>🤖 Generovanie a úprava cez AI</h3>
+          <p style={{margin: 0}}>
+            V hornom paneli napíšte, aký proces potrebujete (napr. "Proces schvaľovania faktúry") a kliknite na
+            Generovať. Ak chcete upraviť existujúci diagram, využite AI Copilota v dolnej časti obrazovky.
+          </p>
+
+          <h3 style={{margin: '8px 0 0 0', color: '#1e293b', fontSize: '16px'}}>🛠 Základné ovládanie úprav:</h3>
+          <p style={{margin: 0}}>
+            V bočnom paneli sa nachádzajú ikony, vďaka nim môžete pridať uzol alebo zarovnať uzly na obrazovke.
+            <br/>
+            Ak chcete upravovať uzol, musíte najprv kliknutím na uzol, vybrať, ktorý chcete upraviť. Vybratý uzol môžete
+            odstrániť, alebo upraviť jeho názov, rolu alebo KPIs (trvanie a cena).
+            <br/>
+            Ak chcete upraviť hranu, musíte na ňu najprv kliknúť a následne ju môžete vymazať alebo zmeniť text hrany.
+          </p>
+
+          <h3 style={{margin: '8px 0 0 0', color: '#1e293b', fontSize: '16px'}}>🏊 Dráhy (Swimlanes)</h3>
+          <p style={{margin: 0}}>
+            Dráhy sa generujú automaticky podľa rolí priradených k jednotlivým krokom. Systém sám zaradí kroky s
+            rovnakou rolou do spoločnej dráhy a optimalizuje usporiadanie. Rolu zmeníte pravým kliknutím na
+            uzol &gt; Zmeniť rolu.
+          </p>
+          <h3 style={{margin: '8px 0 0 0', color: '#1e293b', fontSize: '16px'}}>⚠️ Upozornenia</h3>
+          <p style={{margin: 0}}>
+            Po zapnutí stránky sa môže stať, že prvý diagram sa bude generovať trocha dlhšie.
+            <br/>
+            V situácii, keď je aktívnych viacero používateľov naraz, môže sa vám zobraziť chybové hlásenie "Too Many
+            Requests", v takom prípade bude generovanie a úprava umelou inteligencou nefunkčná niekoľko minút až hodinu.
+            <br/>
+            Po vytvorení účtu nie je možná zmena hesla.
+          </p>
+        </div>
+
+        <button style={bp} onClick={onClose}>Zavrieť</button>
       </div>
     </div>
   );
@@ -335,32 +410,75 @@ function App() {
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [pendingAction, setPendingAction] = useState(null);
   const [selectedCategory, setSelectedCategory] = useState('Iné');
+  const [showInfoModal, setShowInfoModal] = useState(false);
 
   // ─── LINTER: Automatická kontrola logiky diagramu ───
+    // LINTER (Automatická kontrola logiky diagramu)
   useEffect(() => {
     setNodes(nds => {
       let changed = false;
+
+      // 1. Spočítame vstupy a výstupy pre každý uzol
+      const inCount = {};
+      const outCount = {};
+      nds.forEach(n => {
+        if (n.type !== 'swimlane') {
+          inCount[n.id] = 0;
+          outCount[n.id] = 0;
+        }
+      });
+
+      edges.forEach(e => {
+        if (inCount[e.target] !== undefined) inCount[e.target]++;
+        if (outCount[e.source] !== undefined) outCount[e.source]++;
+      });
+
+      // 2. Zistíme, koľko uzlov v celom diagrame má presne 0 vstupov a 0 výstupov
+      let zeroInTotal = 0;
+      let zeroOutTotal = 0;
+      nds.forEach(n => {
+        if (n.type !== 'swimlane') {
+          if (inCount[n.id] === 0) zeroInTotal++;
+          if (outCount[n.id] === 0) zeroOutTotal++;
+        }
+      });
+
+      // 3. Vyhodnotenie chýb pre každý uzol
       const newNodes = nds.map(n => {
         if (n.type === 'swimlane') return n;
-        const isStart = n.id === 'start' || (n.data.baseLabel && n.data.baseLabel.toLowerCase().includes('zaiatok'));
-        const isEnd = n.id === 'end' || (n.data.baseLabel && n.data.baseLabel.toLowerCase().includes('koniec'));
-        const incomingCount = edges.filter(e => e.target === n.id).length;
-        const outgoingCount = edges.filter(e => e.source === n.id).length;
+
+        const incomingCount = inCount[n.id];
+        const outgoingCount = outCount[n.id];
+
+        // Nechávame aj explicitnú textovú poistku z generovania AI
+        const labelLower = (n.data.baseLabel || n.data.label || '').toLowerCase();
+        const isExplicitStart = n.id === 'start' || labelLower.includes('začiatok') || labelLower.includes('start');
+        const isExplicitEnd = n.id === 'end' || labelLower.includes('koniec') || labelLower.includes('end');
+
+        // Uzol je ZAČIATOK, ak je explicitne pomenovaný, ALEBO ak je to JEDINÝ uzol v diagrame bez vstupu
+        const isStart = isExplicitStart || (incomingCount === 0 && zeroInTotal === 1);
+
+        // Uzol je KONIEC, ak je explicitne pomenovaný, ALEBO ak je to JEDINÝ uzol v diagrame bez výstupu
+        const isEnd = isExplicitEnd || (outgoingCount === 0 && zeroOutTotal === 1);
+
         let isInvalid = false;
         let validationMsg = '';
+
         if (!isStart && incomingCount === 0) {
           isInvalid = true;
-          validationMsg = 'Chyba vstupna hrana! Tento krok procesu je nedosiahnutelny.';
+          validationMsg = 'Chyba - vstupná hrana! Tento krok procesu je nedosiahnuteľný.';
         } else if (!isEnd && outgoingCount === 0) {
           isInvalid = true;
-          validationMsg = 'Chyba vystupna hrana! Proces tu necakane konci - slepa ulicka.';
+          validationMsg = 'Chyba - výstupná hrana! Proces tu nečakane končí - slepá ulička.';
         }
+
         if (n.data.isInvalid !== isInvalid || n.data.validationMsg !== validationMsg) {
           changed = true;
           return { ...n, data: { ...n.data, isInvalid, validationMsg } };
         }
         return n;
       });
+
       return changed ? newNodes : nds;
     });
   }, [edges, setNodes]);
@@ -1590,7 +1708,7 @@ function App() {
   return (
     <div style={{ width: '100vw', height: '100vh', display: 'flex', overflow: 'hidden', backgroundColor: COLORS.canvasBg }}>
       {showAuthModal && <AuthModal onClose={() => { setShowAuthModal(false); setPendingAction(null); }} onLoginSuccess={onLoginSuccess} />}
-
+      {showInfoModal && <InfoModal onClose={() => setShowInfoModal(false)} />}
       {/* ── SIDEBAR ── */}
       <div style={{ width: '320px', minWidth: '320px', height: '100%', backgroundColor: COLORS.sidebarBg, color: COLORS.text, display: 'flex', flexDirection: 'column', boxShadow: '4px 0 15px rgba(0,0,0,0.1)', zIndex: 10, overflowY: 'auto' }}>
 
@@ -1607,6 +1725,13 @@ function App() {
             )}
           </div>
         </div>
+
+        <SidebarButton
+            icon={Icons.Info}
+            label="Návod na použitie"
+            onClick={() => setShowInfoModal(true)}
+            fullWidth={true}
+          />
 
         <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
 
