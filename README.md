@@ -83,4 +83,4 @@
 
 ## Autor
 
-Vytvoril [tvoje meno / GitHub profil](https://github.com/tvoje-meno).
+Vytvoril Timotej Jakubov https://github.com/Timotej04
