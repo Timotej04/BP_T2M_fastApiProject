@@ -400,8 +400,8 @@ function App() {
 
   const [isSavedToCatalog, setIsSavedToCatalog] = useState(false);
 
-  const [minNodes, setMinNodes] = useState(4);
-  const [maxNodes, setMaxNodes] = useState(8);
+  const [minNodes, setMinNodes] = useState('');
+  const [maxNodes, setMaxNodes] = useState('');
   const [includeKpi, setIncludeKpi] = useState(false);
   const [laneCustomWidth, setLaneCustomWidth] = useState(null);
   const [, setLaneMinWidth] = useState(800);
@@ -1704,7 +1704,14 @@ function App() {
       </div>
     );
   }
-
+  let generateBtnLabel = 'Generovať model';
+    if (isLoading) {
+      generateBtnLabel = 'Generujem...';
+    } else if (!promptText.trim()) {
+      generateBtnLabel = 'Napíšte zadanie';
+    } else if (minNodes === '' || maxNodes === '') {
+      generateBtnLabel = 'Zadajte počet uzlov';
+    }
   return (
     <div style={{ width: '100vw', height: '100vh', display: 'flex', overflow: 'hidden', backgroundColor: COLORS.canvasBg }}>
       {showAuthModal && <AuthModal onClose={() => { setShowAuthModal(false); setPendingAction(null); }} onLoginSuccess={onLoginSuccess} />}
@@ -1736,24 +1743,101 @@ function App() {
         <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
 
           {/* AI Generovanie */}
-          <div style={{ background: COLORS.sidebarCard, padding: '16px', borderRadius: '12px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            <div style={{ fontSize: '12px', fontWeight: '600', textTransform: 'uppercase', color: COLORS.textMuted, letterSpacing: '1px' }}>AI Generovanie</div>
-            <textarea placeholder="Popíš proces..." value={promptText} onChange={(e) => setPromptText(e.target.value)} style={{ width: '100%', minHeight: '80px', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(0,0,0,0.2)', color: '#fff', fontSize: '13px', resize: 'vertical', outline: 'none' }} />
-            <div style={{ display: 'flex', gap: '10px' }}>
-              <div style={{ flex: 1, display: 'flex', alignItems: 'center', background: 'rgba(0,0,0,0.2)', borderRadius: '6px', padding: '2px' }}>
-                <span style={{ fontSize: '11px', padding: '0 8px', color: COLORS.textMuted }}>Min:</span>
-                <input type="number" value={minNodes} onChange={(e) => setMinNodes(e.target.value)} min="1" style={{ width: '40px', background: 'transparent', border: 'none', color: '#fff', fontSize: '13px', textAlign: 'center', outline: 'none' }} />
+          <div style={{
+            background: COLORS.sidebarCard,
+            padding: '16px',
+            borderRadius: '12px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '12px'
+          }}>
+            <div style={{
+              fontSize: '12px',
+              fontWeight: '600',
+              textTransform: 'uppercase',
+              color: COLORS.textMuted,
+              letterSpacing: '1px'
+            }}>AI Generovanie
+            </div>
+            <textarea placeholder="Popíš proces..." value={promptText} onChange={(e) => setPromptText(e.target.value)}
+                      style={{
+                        width: '100%',
+                        minHeight: '120px',
+                        padding: '12px',
+                        borderRadius: '8px',
+                        border: '1px solid rgba(255,255,255,0.1)',
+                        background: 'rgba(0,0,0,0.2)',
+                        color: '#fff',
+                        fontSize: '13px',
+                        resize: 'vertical',
+                        outline: 'none'
+                      }}/>
+            <div style={{fontSize: '12px', fontWeight: 'bold', marginBottom: '4px'}}>
+              Počet uzlov <span style={{color: '#ef4444'}}>*</span>
+            </div>
+            <div style={{display: 'flex', gap: '10px'}}>
+
+              <div style={{
+                flex: 1,
+                display: 'flex',
+                alignItems: 'center',
+                background: 'rgba(0,0,0,0.2)',
+                borderRadius: '6px',
+                padding: '2px'
+              }}>
+                <span style={{fontSize: '11px', padding: '0 8px', color: COLORS.textMuted}}>Min:</span>
+                <input
+                    type="number"
+                    value={minNodes}
+                    onChange={(e) => setMinNodes(e.target.value)}
+                    placeholder="?" min="1" style={{
+                  width: '40px',
+                  background: 'transparent',
+                  border: 'none',
+                  color: '#fff',
+                  fontSize: '13px',
+                  textAlign: 'center',
+                  outline: 'none'
+                }}/>
               </div>
-              <div style={{ flex: 1, display: 'flex', alignItems: 'center', background: 'rgba(0,0,0,0.2)', borderRadius: '6px', padding: '2px' }}>
-                <span style={{ fontSize: '11px', padding: '0 8px', color: COLORS.textMuted }}>Max:</span>
-                <input type="number" value={maxNodes} onChange={(e) => setMaxNodes(e.target.value)} min="2" style={{ width: '40px', background: 'transparent', border: 'none', color: '#fff', fontSize: '13px', textAlign: 'center', outline: 'none' }} />
+              <div style={{
+                flex: 1,
+                display: 'flex',
+                alignItems: 'center',
+                background: 'rgba(0,0,0,0.2)',
+                borderRadius: '6px',
+                padding: '2px'
+              }}>
+                <span style={{fontSize: '11px', padding: '0 8px', color: COLORS.textMuted}}>Max:</span>
+                <input
+                    type="number"
+                    value={maxNodes}
+                    onChange={(e) => setMaxNodes(e.target.value)}
+                    placeholder="?" min="2" style={{
+                  width: '40px',
+                  background: 'transparent',
+                  border: 'none',
+                  color: '#fff',
+                  fontSize: '13px',
+                  textAlign: 'center',
+                  outline: 'none'
+                }}/>
               </div>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 0', marginTop: '8px' }}>
-              <input type="checkbox" id="kpi-checkbox" checked={includeKpi} onChange={(e) => setIncludeKpi(e.target.checked)} style={{ cursor: 'pointer' }} />
-              <label htmlFor="kpi-checkbox" style={{ fontSize: '11px', color: COLORS.textMuted, cursor: 'pointer' }}>Vygenerovať odhady pre trvanie a náklady (KPI)</label>
+            <div style={{display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 0', marginTop: '8px'}}>
+              <input type="checkbox" id="kpi-checkbox" checked={includeKpi}
+                     onChange={(e) => setIncludeKpi(e.target.checked)} style={{cursor: 'pointer'}}/>
+              <label htmlFor="kpi-checkbox" style={{fontSize: '11px', color: COLORS.textMuted, cursor: 'pointer'}}>Vygenerovať
+                odhady pre trvanie a náklady (KPI)</label>
             </div>
-            <SidebarButton icon={Icons.Generate} label={isLoading ? 'Generujem...' : 'Generovať model'} onClick={loadModel} disabled={isLoading || !promptText.trim()} variant="primary" fullWidth />
+            <SidebarButton
+                icon={Icons.Generate}
+                label={generateBtnLabel}
+                onClick={loadModel}
+                disabled={isLoading || !promptText.trim() || minNodes === '' || maxNodes === ''}
+                variant="primary"
+                fullWidth
+            />
           </div>
 
 

@@ -354,11 +354,11 @@ Zadanie procesu:
                     {"role": "system", "content": "You are a JSON generator. You output only valid JSON."},
                     {"role": "user", "content": prompt}
                 ],
-                "max_tokens": 5000,
+                "max_tokens": 8192,
                 "temperature": 0.0,
                 "response_format": {"type": "json_object"}
             },
-            timeout=45,
+            timeout=90,
         )
         resp.raise_for_status()
         data = resp.json()
@@ -718,11 +718,11 @@ PRAVIDLA (MUSI STRIKTNE DODRZIA):
                     {"role": "system", "content": "You are a JSON editor. You output only valid JSON."},
                     {"role": "user", "content": prompt}
                 ],
-                "max_tokens": 5000,
+                "max_tokens": 8192,
                 "temperature": 0.0,
                 "response_format": {"type": "json_object"}
             },
-            timeout=45,
+            timeout=90,
         )
         resp.raise_for_status()
         data = resp.json()
