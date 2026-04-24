@@ -757,7 +757,7 @@ function App() {
           final_node_count: taskNodes.length,
           model_json: processModel,
           is_public: isPublic,
-          category: selectedCategory,
+          category: chosenCategory,
         }),
       });
       if (resp.status === 401) { handleLogout(); await modalAlert('Prihlásenie vypršalo. Prihlás sa znova.', 'Relácia vypršala'); return; }
