@@ -2,7 +2,20 @@ import { useState, useEffect, useCallback } from 'react';
 
 const API = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
 
-const CATEGORIES = ['Všetky', 'HR', 'IT', 'Financie', 'Operácie', 'Marketing', 'Zákaznícky servis', 'Iné'];
+const CATEGORIES = ['Financie',
+  'Hospodárstvo',
+  'HR',
+  'IT',
+  'Marketing',
+  'Operácie',
+  'Právo',
+  'Služby',
+  'Školstvo',
+  'Šport',
+  'Územné celky',
+  'Zákaznícky servis',
+  'Zdravotníctvo',
+  'Iné',];
 
 const CATEGORY_COLORS = {
   'HR':                 { bg: '#fef3c7', text: '#92400e', border: '#fcd34d' },
